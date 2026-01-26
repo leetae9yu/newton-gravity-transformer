@@ -97,6 +97,20 @@ python chat.py --checkpoint-path your/path/to/checkpoints.pt
 You can check my checkpoints in the `5k-v0.1` directory.
 I trained the model for 5k steps. My T4 Free-tier GPU worked hard for it :)
 
+### 4. Model Configuration (Default)
+
+| Hyperparameter | Value | Description |
+|----------------|-------|-------------|
+| `Total Parameters` | **4M** | Total trainable parameters |
+| `vocab_size` | 65 | Character-level Vocabulary (TinyShakespeare) |
+| `hidden_dim` | 256 | Dimension of token embeddings & hidden states |
+| `coord_dim` | 32 | Dimension of the latent coordinate space |
+| `num_layers` | 6 | Number of NGT blocks (depth) |
+| `num_heads` | 8 | Number of gravity attention heads |
+| `mlp_dim` | 1024 | Dimension of Feed-Forward Network internal layer |
+| `block_size` | 256 | Maximum context length (sequence length) |
+| `batch_size` | 64 | Training batch size |
+
 ---
 
 ## 📊 Results
