@@ -43,7 +43,6 @@ htmlcov/
 # AI Assistant memory files (private)
 AGENTS.md
 GEMINI.md
-README.md
 
 # Logs
 *.log
@@ -64,6 +63,3 @@ checkpoints_ideal/
 
 # Data (download via prepare_data.py)
 data/
-
-# NotebookLM exports
-notebooklm_export/
