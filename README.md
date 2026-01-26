@@ -90,8 +90,12 @@ python prepare_data.py
 python train_shakespeare.py --max-steps 5000
 
 # Chat with the model
-python chat.py --checkpoint-path checkpoints_ideal/shakespeare.pt_best.pt
+python chat.py --checkpoint-path your/path/to/checkpoints.pt
 ```
+
+### 3. My Checkpoints (5k steps)
+You can check my checkpoints in the `5k-v0.1` directory.
+I trained the model for 5k steps. My T4 Free-tier GPU worked hard for it :)
 
 ---
 
