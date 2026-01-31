@@ -4,21 +4,25 @@ import torch.nn.functional as F
 
 class GravityAttention(nn.Module):
     """
-    Hierarchical Gravity Transformer (HGT) Gravity Attention.
+    Newton Gravity Transformer (NGT) Gravity Attention.
     
     Features:
     - Mass-based attention: Score = -γ × (m_i × m_j) / (dist² + ε)
     - Learnable radius sparse attention: masks pairs where dist² > radius²
     """
     def __init__(
-        self, 
-        hidden_dim: int, 
-        coord_dim: int, 
-        num_heads: int, 
+        self,
+        hidden_dim: int,
+        coord_dim: int,
+        num_heads: int,
         head_coord_dim: int = 16,
         dropout: float = 0.1,
         initial_radius: float = 4.0,
         dist_eps: float = 1e-6,
+        use_radius_cutoff: bool = True,
+        use_rsqrt: bool = False,
+        mass_in_value: bool = False,
+        use_soft_cutoff: bool = False,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -26,6 +30,10 @@ class GravityAttention(nn.Module):
         self.num_heads = num_heads
         self.head_coord_dim = head_coord_dim
         self.dist_eps = dist_eps
+        self.use_radius_cutoff = use_radius_cutoff
+        self.use_rsqrt = use_rsqrt
+        self.mass_in_value = mass_in_value
+        self.use_soft_cutoff = use_soft_cutoff
         
         self.head_dim = hidden_dim // num_heads
         assert self.head_dim * num_heads == hidden_dim, "hidden_dim must be divisible by num_heads"
@@ -64,21 +72,38 @@ class GravityAttention(nn.Module):
         gamma = self.softplus(self.gamma)
         radius = self.softplus(self.radius_param)
         
-        # Mass-based gravity attention score: -γ × (m_i × m_j) / (dist² + ε)
-        if mass is not None:
-            # mass: [B, L, 1] -> mass_products: [B, 1, L, L]
+        # --- Gravity score computation ---
+        # Base inverse-distance score
+        if self.use_rsqrt:
+            inv_dist = torch.rsqrt(squared_dist + self.dist_eps)
+            base_score = -gamma * inv_dist * inv_dist
+        else:
+            base_score = -gamma / (squared_dist + self.dist_eps)
+
+        # Mass handling: either in attention scores (default) or in value weighting
+        if mass is not None and not self.mass_in_value:
+            # Default: mass affects "who to attend to"
             mass_squeezed = mass.squeeze(-1)  # [B, L]
             mass_products = mass_squeezed.unsqueeze(-1) * mass_squeezed.unsqueeze(-2)  # [B, L, L]
-            mass_products = mass_products.unsqueeze(1)  # [B, 1, L, L] - broadcast across heads
-            attn_scores = -gamma * mass_products / (squared_dist + self.dist_eps)
+            mass_products = mass_products.unsqueeze(1)  # [B, 1, L, L]
+            attn_scores = base_score * mass_products
         else:
-            # Fallback: inverse-distance physics without mass (assumes uniform mass=1)
-            attn_scores = -gamma / (squared_dist + self.dist_eps)
-        
-        # Sparse attention: mask pairs where distance exceeds learnable radius
-        radius_squared = radius ** 2
-        sparse_mask = squared_dist > radius_squared
-        attn_scores = attn_scores.masked_fill(sparse_mask, -1e9)
+            attn_scores = base_score
+
+        if mass is not None and self.mass_in_value:
+            # Mass as "broadcasting power": heavier tokens send more information
+            value = value * mass.unsqueeze(1)  # [B, 1, L, 1] broadcasts with [B, H, L, D]
+
+        # Sparse attention: radius-based cutoff
+        if self.use_radius_cutoff:
+            radius_squared = radius ** 2
+            if self.use_soft_cutoff:
+                # Smooth ReLU-style decay: no bool comparison, no branching
+                penalty = F.relu(1.0 - squared_dist / radius_squared)
+                attn_scores = attn_scores * penalty
+            else:
+                sparse_mask = squared_dist > radius_squared
+                attn_scores = attn_scores.masked_fill(sparse_mask, -1e9)
 
         # Apply causal/padding mask if provided
         if mask is not None:
@@ -97,10 +122,16 @@ class GravityAttention(nn.Module):
         if return_stats:
             eps = 1e-9
             entropy = -(attn_weights * torch.log(attn_weights + eps)).sum(dim=-1)
-            # Sparsity ratio: fraction of pairs masked by radius
-            total_pairs = sparse_mask.numel()
-            masked_pairs = sparse_mask.sum().float()
-            sparsity_ratio = masked_pairs / total_pairs
+            # Sparsity ratio: fraction of pairs masked/suppressed by radius
+            if self.use_radius_cutoff and not self.use_soft_cutoff:
+                total_pairs = sparse_mask.numel()
+                masked_pairs = sparse_mask.sum().float()
+                sparsity_ratio = masked_pairs / total_pairs
+            elif self.use_radius_cutoff and self.use_soft_cutoff:
+                # For soft cutoff, measure fraction of pairs with penalty < 0.5
+                sparsity_ratio = (penalty < 0.5).float().mean()
+            else:
+                sparsity_ratio = torch.tensor(0.0, device=hidden_states.device)
             stats = {
                 "gamma_mean": gamma.mean(),
                 "radius": radius,
@@ -142,10 +173,15 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-class HGTBlock(nn.Module):
-    def __init__(self, hidden_dim, coord_dim, num_heads, mlp_dim, dropout=0.1):
+class NGTBlock(nn.Module):
+    def __init__(self, hidden_dim, coord_dim, num_heads, mlp_dim, dropout=0.1,
+                 use_radius_cutoff=True, use_rsqrt=False, mass_in_value=False, use_soft_cutoff=False):
         super().__init__()
-        self.attn = GravityAttention(hidden_dim, coord_dim, num_heads, dropout=dropout)
+        self.attn = GravityAttention(
+            hidden_dim, coord_dim, num_heads, dropout=dropout,
+            use_radius_cutoff=use_radius_cutoff, use_rsqrt=use_rsqrt,
+            mass_in_value=mass_in_value, use_soft_cutoff=use_soft_cutoff,
+        )
         self.ffn = FeedForward(hidden_dim, mlp_dim, dropout=dropout)
         
         self.norm1 = nn.LayerNorm(hidden_dim)
@@ -171,17 +207,21 @@ class HGTBlock(nn.Module):
             return h, z, stats
         return h, z
 
-class HierarchicalGravityTransformer(nn.Module):
+class NewtonGravityTransformer(nn.Module):
     def __init__(
-        self, 
-        num_tokens, 
-        hidden_dim, 
-        coord_dim, 
-        num_layers, 
-        num_heads, 
-        mlp_dim, 
+        self,
+        num_tokens,
+        hidden_dim,
+        coord_dim,
+        num_layers,
+        num_heads,
+        mlp_dim,
         max_seq_len=512,
         dropout=0.1,
+        use_radius_cutoff=True,
+        use_rsqrt=False,
+        mass_in_value=False,
+        use_soft_cutoff=False,
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, hidden_dim)
@@ -189,9 +229,13 @@ class HierarchicalGravityTransformer(nn.Module):
         # Coordinate embedding - can be learned or based on absolute positions
         self.coord_emb = nn.Embedding(max_seq_len, coord_dim)
         self.mass_nonlinearity = nn.Softplus()
-        
+
         self.layers = nn.ModuleList([
-            HGTBlock(hidden_dim, coord_dim, num_heads, mlp_dim, dropout)
+            NGTBlock(
+                hidden_dim, coord_dim, num_heads, mlp_dim, dropout,
+                use_radius_cutoff=use_radius_cutoff, use_rsqrt=use_rsqrt,
+                mass_in_value=mass_in_value, use_soft_cutoff=use_soft_cutoff,
+            )
             for _ in range(num_layers)
         ])
         
@@ -244,7 +288,7 @@ class HierarchicalGravityTransformer(nn.Module):
 
 if __name__ == "__main__":
     # Test Full Model
-    model = HierarchicalGravityTransformer(
+    model = NewtonGravityTransformer(
         num_tokens=100, 
         hidden_dim=64, 
         coord_dim=16, 
@@ -257,4 +301,4 @@ if __name__ == "__main__":
     logits = model(x)
     print(f"Input shape: {x.shape}")
     print(f"Output shape: {logits.shape}")
-    print("HGT Model Forward Pass Successful!")
+    print("NGT Model Forward Pass Successful!")

@@ -44,6 +44,7 @@ htmlcov/
 AGENTS.md
 GEMINI.md
 
+
 # Logs
 *.log
 runs/
@@ -63,3 +64,10 @@ checkpoints_ideal/
 
 # Data (download via prepare_data.py)
 data/
+
+# User Learning Workspace
+learn_ngt/
+
+# In Progress
+BOTTLENECK_ANALYSIS.md
+TROUBLESHOOTING.md

@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
-from hgt_model import HierarchicalGravityTransformer
+from ngt_model import NewtonGravityTransformer
 from prepare_data import ensure_data
 
 
@@ -171,7 +171,7 @@ DEFAULT_CONFIG = {
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train HGT on TinyShakespeare.")
+    parser = argparse.ArgumentParser(description="Train NGT on TinyShakespeare.")
     parser.add_argument("--data-path", default=DEFAULT_CONFIG["data_path"])
     parser.add_argument("--checkpoint-path", default=DEFAULT_CONFIG["checkpoint_path"])
     parser.add_argument("--resume", action="store_true", default=DEFAULT_CONFIG["resume"])
@@ -189,6 +189,18 @@ def parse_args():
     parser.add_argument("--num-heads", type=int, default=DEFAULT_CONFIG["num_heads"])
     parser.add_argument("--mlp-dim", type=int, default=DEFAULT_CONFIG["mlp_dim"])
     parser.add_argument("--dropout", type=float, default=DEFAULT_CONFIG["dropout"])
+    parser.add_argument("--no-radius-cutoff", action="store_true", default=False,
+                        help="Disable radius cutoff in gravity attention")
+    parser.add_argument("--no-repulsion", action="store_true", default=False,
+                        help="Disable repulsion loss during training")
+    parser.add_argument("--use-rsqrt", action="store_true", default=False,
+                        help="Use rsqrt instead of division for gravity score (faster)")
+    parser.add_argument("--mass-in-value", action="store_true", default=False,
+                        help="Apply mass to value weighting instead of attention scores")
+    parser.add_argument("--use-soft-cutoff", action="store_true", default=False,
+                        help="Use smooth ReLU-style radius cutoff instead of hard masking")
+    parser.add_argument("--use-amp", action="store_true", default=False,
+                        help="Enable Automatic Mixed Precision (FP16) for faster training on CUDA")
     return parser.parse_args()
 
 
@@ -238,7 +250,16 @@ def main():
     train_data = data[:split_idx]
     val_data = data[split_idx:]
 
-    model = HierarchicalGravityTransformer(
+    use_radius_cutoff = not args.no_radius_cutoff
+    use_repulsion = not args.no_repulsion
+    use_rsqrt = args.use_rsqrt
+    mass_in_value = args.mass_in_value
+    use_soft_cutoff = args.use_soft_cutoff
+    use_amp = args.use_amp and torch.cuda.is_available()
+    if args.use_amp and not torch.cuda.is_available():
+        print("Warning: --use-amp ignored (CUDA not available)")
+
+    model = NewtonGravityTransformer(
         num_tokens=vocab_size,
         hidden_dim=hidden_dim,
         coord_dim=coord_dim,
@@ -247,12 +268,17 @@ def main():
         mlp_dim=mlp_dim,
         max_seq_len=block_size,
         dropout=dropout,
+        use_radius_cutoff=use_radius_cutoff,
+        use_rsqrt=use_rsqrt,
+        mass_in_value=mass_in_value,
+        use_soft_cutoff=use_soft_cutoff,
     ).to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
     mask = build_causal_mask(block_size, device)
-    writer = SummaryWriter(log_dir="runs/hgt_experiment")
+    scaler = torch.amp.GradScaler(enabled=use_amp)
+    writer = SummaryWriter(log_dir="runs/ngt_experiment")
 
     start_step = 0
     best_val = float("inf")
@@ -277,21 +303,33 @@ def main():
     t0 = time.time()
     for step in range(start_step, max_steps):
         x, y = get_batch(train_data, block_size, batch_size, device)
-        logits, z, m = model(x, mask=mask, return_last_coords=True)
-        task_loss = criterion(logits.view(-1, vocab_size), y.view(-1))
-        rep_loss = compute_repulsion_loss(z, mass=m)
-        rep_loss_item = float(rep_loss.detach())
-        loss = task_loss + lambda_repulsion * rep_loss
+
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            if use_repulsion:
+                logits, z, m = model(x, mask=mask, return_last_coords=True)
+                task_loss = criterion(logits.view(-1, vocab_size), y.view(-1))
+                rep_loss = compute_repulsion_loss(z, mass=m)
+                rep_loss_item = float(rep_loss.detach())
+                loss = task_loss + lambda_repulsion * rep_loss
+            else:
+                logits = model(x, mask=mask)
+                if isinstance(logits, tuple):
+                    logits = logits[0]
+                task_loss = criterion(logits.view(-1, vocab_size), y.view(-1))
+                rep_loss_item = 0.0
+                loss = task_loss
 
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
-        if vis_interval and vis_interval > 0 and (step + 1) % vis_interval == 0:
+        if vis_interval and vis_interval > 0 and (step + 1) % vis_interval == 0 and use_repulsion:
             flat_z = z.detach().reshape(-1, z.size(-1))
             tokens_flat = x.detach().reshape(-1)
-            
+
             # Sample embeddings to prevent event file bloat
             max_embed_samples = 1024
             total_tokens = flat_z.size(0)
@@ -299,7 +337,7 @@ def main():
                 indices = torch.randperm(total_tokens)[:max_embed_samples]
                 flat_z = flat_z[indices]
                 tokens_flat = tokens_flat[indices]
-            
+
             tokens_text = [itos[int(tok)] if int(tok) in itos else "<unk>" for tok in tokens_flat]
             writer.add_embedding(
                 mat=flat_z,
@@ -339,10 +377,13 @@ def main():
                 eval_iters,
             )
             # Compute rep_loss at evaluation time (not from last training batch)
-            with torch.no_grad():
-                eval_x, _ = get_batch(val_data, block_size, batch_size, device)
-                _, eval_z, eval_m = model(eval_x, mask=mask, return_last_coords=True)
-                eval_rep_loss = compute_repulsion_loss(eval_z, mass=eval_m).item()
+            if use_repulsion:
+                with torch.no_grad():
+                    eval_x, _ = get_batch(val_data, block_size, batch_size, device)
+                    _, eval_z, eval_m = model(eval_x, mask=mask, return_last_coords=True)
+                    eval_rep_loss = compute_repulsion_loss(eval_z, mass=eval_m).item()
+            else:
+                eval_rep_loss = 0.0
             elapsed = time.time() - t0
             print(
                 f"step {step + 1}/{max_steps} "
@@ -371,6 +412,10 @@ def main():
                             "max_seq_len": block_size,
                             "dropout": dropout,
                             "vocab_size": vocab_size,
+                            "use_radius_cutoff": use_radius_cutoff,
+                        "use_rsqrt": use_rsqrt,
+                        "mass_in_value": mass_in_value,
+                        "use_soft_cutoff": use_soft_cutoff,
                         },
                         "vocab": {"stoi": stoi, "itos": itos},
                     },
@@ -392,6 +437,7 @@ def main():
                 "max_seq_len": block_size,
                 "dropout": dropout,
                 "vocab_size": vocab_size,
+                "use_radius_cutoff": use_radius_cutoff,
             },
             "vocab": {"stoi": stoi, "itos": itos},
         },

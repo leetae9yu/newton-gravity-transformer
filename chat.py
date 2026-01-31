@@ -4,7 +4,8 @@ import os
 import torch
 import torch.nn.functional as F
 
-from hgt_model import HierarchicalGravityTransformer
+from ngt_model import NewtonGravityTransformer
+from vanilla_model import VanillaTransformer
 
 
 def build_causal_mask(seq_len, device):
@@ -53,11 +54,11 @@ def generate(model, idx, max_new_tokens, block_size, device, temperature=1.0, to
 import argparse
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Chat with HGT model.")
+    parser = argparse.ArgumentParser(description="Chat with NGT model.")
     parser.add_argument(
         "--checkpoint-path", 
         type=str, 
-        default=os.path.join("checkpoints", "shakespeare.pt"),
+        default=os.path.join("checkpoints", "shakespeare.pt_best.pt"),
         help="Path to the model checkpoint file."
     )
     return parser.parse_args()
@@ -79,39 +80,61 @@ def main():
     itos = vocab["itos"]
     vocab_size = config["vocab_size"]
     hidden_dim = config["hidden_dim"]
-    coord_dim = config["coord_dim"]
-
-    model = HierarchicalGravityTransformer(
-        num_tokens=vocab_size,
-        hidden_dim=hidden_dim,
-        coord_dim=coord_dim,
-        num_layers=config["num_layers"],
-        num_heads=config["num_heads"],
-        mlp_dim=config["mlp_dim"],
-        max_seq_len=config["max_seq_len"],
-        dropout=config["dropout"],
-    ).to(device)
     state_dict = checkpoint["model_state"]
 
-    # Handle legacy coord_proj_next shape
-    if is_legacy_coord_proj(state_dict, coord_dim=coord_dim, hidden_dim=hidden_dim):
-        for layer in model.layers:
-            layer.attn.coord_proj_next = torch.nn.Linear(coord_dim, coord_dim).to(device)
-        print("Detected legacy coord_proj_next; swapped to compatible layers.")
+    # Auto-detect model type: coord_dim exists in config → NGT, otherwise → Vanilla
+    is_ngt = "coord_dim" in config
 
-    # Load with strict=False to tolerate missing legacy keys
-    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-    if missing_keys:
-        print(f"Missing keys during load (handled with defaults): {missing_keys}")
-    if unexpected_keys:
-        print(f"Unexpected keys ignored during load: {unexpected_keys}")
+    if is_ngt:
+        coord_dim = config["coord_dim"]
+        model = NewtonGravityTransformer(
+            num_tokens=vocab_size,
+            hidden_dim=hidden_dim,
+            coord_dim=coord_dim,
+            num_layers=config["num_layers"],
+            num_heads=config["num_heads"],
+            mlp_dim=config["mlp_dim"],
+            max_seq_len=config["max_seq_len"],
+            dropout=config["dropout"],
+            use_radius_cutoff=config.get("use_radius_cutoff", True),
+            use_rsqrt=config.get("use_rsqrt", False),
+            mass_in_value=config.get("mass_in_value", False),
+            use_soft_cutoff=config.get("use_soft_cutoff", False),
+        ).to(device)
 
-    # If legacy checkpoint lacks mass embeddings, initialize them to yield mass ~1.0
-    has_mass_weights = any(k.startswith("mass_emb.") for k in state_dict.keys())
-    if not has_mass_weights:
-        neutral_mass = math.log(math.expm1(1.0))  # inverse softplus for target mass=1
-        model.mass_emb.weight.data.fill_(neutral_mass)
-        print("Initialized mass_emb to neutral mass (1.0) for legacy checkpoint.")
+        # Handle legacy coord_proj_next shape
+        if is_legacy_coord_proj(state_dict, coord_dim=coord_dim, hidden_dim=hidden_dim):
+            for layer in model.layers:
+                layer.attn.coord_proj_next = torch.nn.Linear(coord_dim, coord_dim).to(device)
+            print("Detected legacy coord_proj_next; swapped to compatible layers.")
+
+        # Load with strict=False to tolerate missing legacy keys
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        if missing_keys:
+            print(f"Missing keys during load (handled with defaults): {missing_keys}")
+        if unexpected_keys:
+            print(f"Unexpected keys ignored during load: {unexpected_keys}")
+
+        # If legacy checkpoint lacks mass embeddings, initialize them to yield mass ~1.0
+        has_mass_weights = any(k.startswith("mass_emb.") for k in state_dict.keys())
+        if not has_mass_weights:
+            neutral_mass = math.log(math.expm1(1.0))  # inverse softplus for target mass=1
+            model.mass_emb.weight.data.fill_(neutral_mass)
+            print("Initialized mass_emb to neutral mass (1.0) for legacy checkpoint.")
+
+        print("Model type: NGT (Newton Gravity Transformer)")
+    else:
+        model = VanillaTransformer(
+            num_tokens=vocab_size,
+            hidden_dim=hidden_dim,
+            num_layers=config["num_layers"],
+            num_heads=config["num_heads"],
+            mlp_dim=config["mlp_dim"],
+            max_seq_len=config["max_seq_len"],
+            dropout=config["dropout"],
+        ).to(device)
+        model.load_state_dict(state_dict)
+        print("Model type: Vanilla Transformer")
 
     block_size = config["max_seq_len"]
     fallback_token = stoi.get(" ", 0)

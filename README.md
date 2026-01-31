@@ -1,5 +1,7 @@
 # Newton Gravity Transformer (NGT)
 
+**[English](README.md)** | **[한국어](README_KO.md)**
+
 ### *"Words are Particles, Attention is Gravity"*
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -86,11 +88,15 @@ pip install -r requirements.txt
 # Download dataset
 python prepare_data.py
 
-# Train the model
+# Train NGT (default settings)
 python train_shakespeare.py --max-steps 5000
 
-# Chat with the model
-python chat.py --checkpoint-path your/path/to/checkpoints.pt
+# Train Vanilla Transformer (same hyperparameters, for comparison)
+python train_shakespeare_vanilla.py --max-steps 5000
+
+# Chat with trained model (auto-detects NGT or Vanilla from checkpoint)
+python chat.py --checkpoint-path checkpoints/shakespeare.pt_best.pt
+python chat.py --checkpoint-path checkpoints/vanilla_shakespeare.pt_best.pt
 ```
 
 ### 3. My Checkpoints (5k steps)
@@ -110,6 +116,75 @@ I trained the model for 5k steps. My T4 Free-tier GPU worked hard for it :)
 | `mlp_dim` | 1024 | Dimension of Feed-Forward Network internal layer |
 | `block_size` | 256 | Maximum context length (sequence length) |
 | `batch_size` | 64 | Training batch size |
+
+### 5. Ablation Experiment Flags
+
+The following flags allow controlled **ablation experiments** to isolate and measure the impact of each component. All flags are available for `train_shakespeare.py`; a subset is available for `train_shakespeare_vanilla.py`.
+
+#### Architecture Ablation (NGT only)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-radius-cutoff` | Off (radius cutoff **enabled**) | Disables learnable radius sparse masking. Attention sees all token pairs regardless of distance. |
+| `--no-repulsion` | Off (repulsion **enabled**) | Disables repulsion loss term. Coordinates still evolve but are not pushed apart. |
+
+#### Computation Optimization (NGT only)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--use-rsqrt` | Off | Replaces division with `rsqrt` (GPU-friendly multiply). Eliminates the main bottleneck in gravity score computation. |
+| `--mass-in-value` | Off | Moves mass from attention scores to value weighting. Removes the L×L mass outer product. Mass becomes "broadcasting power" instead of "mutual attraction". |
+| `--use-soft-cutoff` | Off | Replaces hard radius masking (bool + masked_fill) with smooth ReLU-style decay. Removes branching for better GPU throughput. |
+
+#### Training Optimization (NGT & Vanilla)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--use-amp` | Off | Enables Automatic Mixed Precision (FP16/FP32). Speeds up training ~1.5-2x on CUDA GPUs. Automatically ignored on CPU. |
+| `--data-path` | `data/input.txt` | Path to the training text file. |
+
+#### Example: Running Ablation Experiments
+
+```bash
+# Baseline NGT
+python train_shakespeare.py --checkpoint-path checkpoints/ngt_base.pt
+
+# rsqrt only
+python train_shakespeare.py --use-rsqrt --checkpoint-path checkpoints/ngt_rsqrt.pt
+
+# mass-in-value only
+python train_shakespeare.py --mass-in-value --checkpoint-path checkpoints/ngt_miv.pt
+
+# soft cutoff only
+python train_shakespeare.py --use-soft-cutoff --checkpoint-path checkpoints/ngt_soft.pt
+
+# All optimizations + AMP
+python train_shakespeare.py --use-rsqrt --mass-in-value --use-soft-cutoff --use-amp \
+    --checkpoint-path checkpoints/ngt_all_opt.pt
+
+# Vanilla baseline + AMP
+python train_shakespeare_vanilla.py --use-amp --checkpoint-path checkpoints/vanilla_amp.pt
+```
+
+> **Note:** Use different `--checkpoint-path` for each experiment to avoid overwriting results.
+
+---
+
+## 🔬 Vanilla Transformer Baseline
+
+A standard Transformer (`vanilla_model.py`) with identical hyperparameters is included for fair comparison. The only difference is the attention mechanism:
+
+| | NGT | Vanilla |
+|---|---|---|
+| Attention | Gravity Kernel (distance + mass) | Scaled Dot-Product (Q·K) |
+| Position encoding | Coordinate embedding (evolves per layer) | Learned positional embedding (added to hidden) |
+| Extra components | Mass embedding, coordinate evolution, radius cutoff | None |
+
+Both models share the same FFN, LayerNorm placement (pre-norm), residual connections, and training setup. TensorBoard logs are written to separate directories (`runs/ngt_experiment` and `runs/vanilla_experiment`) for side-by-side comparison:
+
+```bash
+tensorboard --logdir runs
+```
 
 ---
 
@@ -168,7 +243,7 @@ Feel free to open an issue or submit a PR at any time!
 
 3. **Visualization**: Because NGT currently uses a Character-Level Tokenizer, I thought that this project doesn't need any visualization yet. But, after I swithch to Subword Tokenizers, I plan to implement some visualization tools to help users understand the latent manifold evolution.
 
-4. **Naming**: There are some codes that say this project **HGT(Hierarchical Gravity Transformer)**, which was an initial name of this project. I changed it to **NGT(Newton Gravity Transformer)** because HGT is already known as **Heterogeneous Graph Transformer**.
+~~4. **Naming**: The codebase has been fully migrated from the initial name **HGT (Hierarchical Gravity Transformer)** to **NGT (Newton Gravity Transformer)** to avoid confusion with the well-known **Heterogeneous Graph Transformer**.~~
 
 ---
 
