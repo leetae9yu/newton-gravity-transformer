@@ -1,23 +1,14 @@
+import argparse
 import math
 import os
 
 import torch
 import torch.nn.functional as F
 
+from common import build_causal_mask
 from ngt_model import NewtonGravityTransformer
 from vanilla_model import VanillaTransformer
-
-
-def build_causal_mask(seq_len, device):
-    return torch.tril(torch.ones(seq_len, seq_len, device=device)).unsqueeze(0).unsqueeze(0)
-
-
-def encode(text, stoi, fallback_token):
-    return [stoi.get(ch, fallback_token) for ch in text]
-
-
-def decode(tokens, itos):
-    return "".join(itos[i] for i in tokens)
+from tokenizer_utils import load_tokenizer
 
 def is_legacy_coord_proj(state_dict, coord_dim, hidden_dim):
     """
@@ -38,11 +29,13 @@ def generate(model, idx, max_new_tokens, block_size, device, temperature=1.0, to
         idx_cond = idx[:, -block_size:]
         mask = build_causal_mask(idx_cond.size(1), device)
         logits = model(idx_cond, mask=mask)
+        if isinstance(logits, tuple):
+            logits = logits[0]
         logits = logits[:, -1, :] / max(temperature, 1e-8)
 
         if top_k is not None:
             v, _ = torch.topk(logits, top_k)
-            logits[logits < v[:, [-1]]] = -1e9
+            logits[logits < v[:, [-1]]] = torch.finfo(logits.dtype).min
 
         probs = F.softmax(logits, dim=-1)
         next_token = torch.multinomial(probs, num_samples=1)
@@ -50,8 +43,6 @@ def generate(model, idx, max_new_tokens, block_size, device, temperature=1.0, to
 
     return idx
 
-
-import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Chat with NGT model.")
@@ -73,12 +64,10 @@ def main():
         return
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     config = checkpoint["config"]
-    vocab = checkpoint["vocab"]
-    stoi = vocab["stoi"]
-    itos = vocab["itos"]
-    vocab_size = config["vocab_size"]
+    tokenizer = load_tokenizer(checkpoint["vocab"])
+    vocab_size = tokenizer.vocab_size
     hidden_dim = config["hidden_dim"]
     state_dict = checkpoint["model_state"]
 
@@ -137,7 +126,6 @@ def main():
         print("Model type: Vanilla Transformer")
 
     block_size = config["max_seq_len"]
-    fallback_token = stoi.get(" ", 0)
 
     print("Loaded checkpoint. Type /quit to exit.")
     while True:
@@ -148,7 +136,7 @@ def main():
         if prompt == "":
             prompt = "\n"
 
-        encoded = encode(prompt, stoi, fallback_token)
+        encoded = tokenizer.encode(prompt)
         idx = torch.tensor(encoded, dtype=torch.long, device=device).unsqueeze(0)
         out = generate(
             model,
@@ -159,7 +147,7 @@ def main():
             temperature=0.9,
             top_k=40,
         )
-        completion = decode(out[0].tolist(), itos)
+        completion = tokenizer.decode(out[0].tolist())
         print(completion)
 
 

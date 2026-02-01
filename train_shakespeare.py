@@ -1,4 +1,5 @@
 import argparse
+import math
 import os
 import pickle
 import time
@@ -8,8 +9,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
+from common import build_causal_mask
 from ngt_model import NewtonGravityTransformer
 from prepare_data import ensure_data
+from tokenizer_utils import build_tokenizer, load_tokenizer
 
 
 def read_text(path):
@@ -26,10 +29,6 @@ def build_vocab(text):
 
 def encode(text, stoi):
     return torch.tensor([stoi[ch] for ch in text], dtype=torch.long)
-
-
-def build_causal_mask(seq_len, device):
-    return torch.tril(torch.ones(seq_len, seq_len, device=device)).unsqueeze(0).unsqueeze(0)
 
 
 def get_batch(data, block_size, batch_size, device):
@@ -199,8 +198,20 @@ def parse_args():
                         help="Apply mass to value weighting instead of attention scores")
     parser.add_argument("--use-soft-cutoff", action="store_true", default=False,
                         help="Use smooth ReLU-style radius cutoff instead of hard masking")
+    parser.add_argument("--lambda-repulsion", type=float, default=0.05,
+                        help="Weight for repulsion loss (default: 0.05)")
+    parser.add_argument("--repulsion-interval", type=int, default=1,
+                        help="Compute repulsion loss every N steps (default: 1, i.e. every step)")
     parser.add_argument("--use-amp", action="store_true", default=False,
                         help="Enable Automatic Mixed Precision (FP16) for faster training on CUDA")
+    parser.add_argument("--warmup-steps", type=int, default=0,
+                        help="Number of linear warmup steps for LR scheduler (0 = no warmup)")
+    parser.add_argument("--use-cosine-schedule", action="store_true", default=False,
+                        help="Use cosine annealing LR schedule (with optional warmup)")
+    parser.add_argument("--tokenizer", type=str, default="char", choices=["char", "bpe", "tiktoken"],
+                        help="Tokenizer type: char (default), bpe, or tiktoken")
+    parser.add_argument("--bpe-vocab-size", type=int, default=4000,
+                        help="BPE vocabulary size (only used with --tokenizer bpe)")
     return parser.parse_args()
 
 
@@ -229,7 +240,8 @@ def main():
     if vis_interval <= 0:
         print(f"Warning: --vis-interval={vis_interval} is invalid, disabling visualization.")
         vis_interval = None
-    lambda_repulsion = 0.05
+    lambda_repulsion = args.lambda_repulsion
+    repulsion_interval = args.repulsion_interval
 
     hidden_dim = args.hidden_dim
     coord_dim = args.coord_dim
@@ -241,10 +253,19 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     text = read_text(data_path)
-    _, stoi, itos = build_vocab(text)
-    probe_word_ids = encode_probe_words(stoi)
-    vocab_size = len(stoi)
-    data = encode(text, stoi)
+
+    # --- Tokenizer setup (may be overridden by checkpoint on resume) ---
+    tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
+    vocab_size = tokenizer.vocab_size
+    data = tokenizer.encode_to_tensor(text)
+
+    # Probe words only make sense for char-level tokenizer
+    use_char_tokenizer = args.tokenizer == "char"
+    if use_char_tokenizer:
+        _, stoi, itos = build_vocab(text)
+        probe_word_ids = encode_probe_words(stoi)
+    else:
+        stoi, itos, probe_word_ids = None, None, {}
 
     split_idx = int(0.9 * len(data))
     train_data = data[:split_idx]
@@ -280,17 +301,60 @@ def main():
     scaler = torch.amp.GradScaler(enabled=use_amp)
     writer = SummaryWriter(log_dir="runs/ngt_experiment")
 
+    # LR scheduler setup
+    scheduler = None
+    if args.use_cosine_schedule:
+        warmup_steps = args.warmup_steps
+
+        def lr_lambda(step):
+            if warmup_steps > 0 and step < warmup_steps:
+                return step / max(warmup_steps, 1)
+            progress = (step - warmup_steps) / max(max_steps - warmup_steps, 1)
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+        scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
     start_step = 0
     best_val = float("inf")
 
     if resume:
         for candidate in (last_checkpoint_path, best_checkpoint_path, checkpoint_path):
             if os.path.exists(candidate):
-                checkpoint = torch.load(candidate, map_location=device)
-                model.load_state_dict(checkpoint["model_state"])
+                checkpoint = torch.load(candidate, map_location=device, weights_only=False)
+                # Restore tokenizer from checkpoint to avoid retraining BPE
+                tokenizer = load_tokenizer(checkpoint["vocab"])
+                vocab_size = tokenizer.vocab_size
+                data = tokenizer.encode_to_tensor(text)
+                split_idx = int(0.9 * len(data))
+                train_data = data[:split_idx]
+                val_data = data[split_idx:]
+                # Rebuild model with restored vocab size
+                model = NewtonGravityTransformer(
+                    num_tokens=vocab_size,
+                    hidden_dim=hidden_dim,
+                    coord_dim=coord_dim,
+                    num_layers=num_layers,
+                    num_heads=num_heads,
+                    mlp_dim=mlp_dim,
+                    max_seq_len=block_size,
+                    dropout=dropout,
+                    use_radius_cutoff=use_radius_cutoff,
+                    use_rsqrt=use_rsqrt,
+                    mass_in_value=mass_in_value,
+                    use_soft_cutoff=use_soft_cutoff,
+                ).to(device)
+                # Restore ablation flags from checkpoint config
+                ckpt_config = checkpoint.get("config", {})
+                use_rsqrt = ckpt_config.get("use_rsqrt", use_rsqrt)
+                mass_in_value = ckpt_config.get("mass_in_value", mass_in_value)
+                use_soft_cutoff = ckpt_config.get("use_soft_cutoff", use_soft_cutoff)
+                use_radius_cutoff = ckpt_config.get("use_radius_cutoff", use_radius_cutoff)
+                model.load_state_dict(checkpoint["model_state"], strict=False)
+                optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
                 optimizer.load_state_dict(checkpoint["optimizer_state"])
                 start_step = checkpoint.get("iter", 0)
                 best_val = checkpoint.get("best_val", best_val)
+                mask = build_causal_mask(block_size, device)
                 break
 
     checkpoint_dir = os.path.dirname(checkpoint_path)
@@ -305,12 +369,17 @@ def main():
         x, y = get_batch(train_data, block_size, batch_size, device)
 
         with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            compute_rep = use_repulsion and (step % repulsion_interval == 0)
             if use_repulsion:
                 logits, z, m = model(x, mask=mask, return_last_coords=True)
                 task_loss = criterion(logits.view(-1, vocab_size), y.view(-1))
-                rep_loss = compute_repulsion_loss(z, mass=m)
-                rep_loss_item = float(rep_loss.detach())
-                loss = task_loss + lambda_repulsion * rep_loss
+                if compute_rep:
+                    rep_loss = compute_repulsion_loss(z, mass=m)
+                    rep_loss_item = float(rep_loss.detach())
+                    loss = task_loss + lambda_repulsion * rep_loss
+                else:
+                    rep_loss_item = 0.0
+                    loss = task_loss
             else:
                 logits = model(x, mask=mask)
                 if isinstance(logits, tuple):
@@ -325,6 +394,8 @@ def main():
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         scaler.step(optimizer)
         scaler.update()
+        if scheduler is not None:
+            scheduler.step()
 
         if vis_interval and vis_interval > 0 and (step + 1) % vis_interval == 0 and use_repulsion:
             flat_z = z.detach().reshape(-1, z.size(-1))
@@ -338,13 +409,13 @@ def main():
                 flat_z = flat_z[indices]
                 tokens_flat = tokens_flat[indices]
 
-            tokens_text = [itos[int(tok)] if int(tok) in itos else "<unk>" for tok in tokens_flat]
+            tokens_text = [tokenizer.decode([int(tok)]) or "<unk>" for tok in tokens_flat]
             writer.add_embedding(
                 mat=flat_z,
                 metadata=tokens_text,
                 global_step=step + 1,
             )
-            if probe_word_ids:
+            if probe_word_ids and use_char_tokenizer:
                 record_probe_snapshot(
                     x.cpu(),
                     z.cpu(),
@@ -413,11 +484,11 @@ def main():
                             "dropout": dropout,
                             "vocab_size": vocab_size,
                             "use_radius_cutoff": use_radius_cutoff,
-                        "use_rsqrt": use_rsqrt,
-                        "mass_in_value": mass_in_value,
-                        "use_soft_cutoff": use_soft_cutoff,
+                            "use_rsqrt": use_rsqrt,
+                            "mass_in_value": mass_in_value,
+                            "use_soft_cutoff": use_soft_cutoff,
                         },
-                        "vocab": {"stoi": stoi, "itos": itos},
+                        "vocab": tokenizer.save_state(),
                     },
                     best_checkpoint_path,
                 )
@@ -438,8 +509,11 @@ def main():
                 "dropout": dropout,
                 "vocab_size": vocab_size,
                 "use_radius_cutoff": use_radius_cutoff,
+                "use_rsqrt": use_rsqrt,
+                "mass_in_value": mass_in_value,
+                "use_soft_cutoff": use_soft_cutoff,
             },
-            "vocab": {"stoi": stoi, "itos": itos},
+            "vocab": tokenizer.save_state(),
         },
         last_checkpoint_path,
     )

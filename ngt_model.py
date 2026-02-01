@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from common import FeedForward
+
 class GravityAttention(nn.Module):
     """
     Newton Gravity Transformer (NGT) Gravity Attention.
@@ -45,6 +47,8 @@ class GravityAttention(nn.Module):
         
         # Learnable gravity constant (per head)
         self.gamma = nn.Parameter(torch.zeros(1, num_heads, 1, 1))
+        # Learnable bias for gravity scores (per head) — widens softmax dynamic range
+        self.gravity_bias = nn.Parameter(torch.zeros(1, num_heads, 1, 1))
         # Learnable radius for sparse attention (shared across heads)
         self.radius_param = nn.Parameter(torch.tensor(initial_radius))
         
@@ -64,9 +68,10 @@ class GravityAttention(nn.Module):
         z_heads = z_heads.transpose(1, 2)
 
         # Vectorized Distance Calculation: ||z_i - z_j||^2
-        z_sq = torch.sum(z_heads ** 2, dim=-1, keepdim=True)
-        squared_dist = z_sq + z_sq.transpose(-1, -2) - 2 * torch.matmul(z_heads, z_heads.transpose(-1, -2))
-        squared_dist = torch.clamp(squared_dist, min=0.0)
+        # Direct difference avoids catastrophic cancellation when z_i ≈ z_j
+        # z_heads: (B, H, L, head_coord_dim) → diff: (B, H, L, L, head_coord_dim)
+        diff = z_heads.unsqueeze(-2) - z_heads.unsqueeze(-3)
+        squared_dist = (diff * diff).sum(dim=-1)
 
         # Learnable parameters
         gamma = self.softplus(self.gamma)
@@ -79,6 +84,9 @@ class GravityAttention(nn.Module):
             base_score = -gamma * inv_dist * inv_dist
         else:
             base_score = -gamma / (squared_dist + self.dist_eps)
+
+        # Apply learnable bias to widen softmax dynamic range
+        base_score = base_score + self.gravity_bias
 
         # Mass handling: either in attention scores (default) or in value weighting
         if mass is not None and not self.mass_in_value:
@@ -103,19 +111,17 @@ class GravityAttention(nn.Module):
                 attn_scores = attn_scores * penalty
             else:
                 sparse_mask = squared_dist > radius_squared
-                attn_scores = attn_scores.masked_fill(sparse_mask, -1e9)
+                attn_scores = attn_scores.masked_fill(sparse_mask, torch.finfo(attn_scores.dtype).min)
 
         # Apply causal/padding mask if provided
         if mask is not None:
             mask = mask.to(dtype=torch.bool, device=attn_scores.device)
-            attn_scores = attn_scores.masked_fill(~mask, -1e9)
+            attn_scores = attn_scores.masked_fill(~mask, torch.finfo(attn_scores.dtype).min)
 
         # Softmax normalization
+        # Pre-masking with dtype min already ensures masked positions get ~0 probability,
+        # so post-masking re-normalization is unnecessary and can cause gradient artifacts.
         attn_weights = F.softmax(attn_scores, dim=-1)
-        if mask is not None:
-            attn_weights = attn_weights * mask
-            denom = attn_weights.sum(dim=-1, keepdim=True).clamp_min(1e-9)
-            attn_weights = attn_weights / denom
 
         # Compute statistics for logging
         stats = None
@@ -148,8 +154,8 @@ class GravityAttention(nn.Module):
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_dim)
         updated_hidden = self.out_proj(attn_output)
 
-        # Coordinate Evolution
-        updated_coords = self.coord_proj_next(hidden_states)
+        # Coordinate Evolution (uses post-attention output for informed updates)
+        updated_coords = self.coord_proj_next(updated_hidden)
 
         if return_stats and return_attn:
             return updated_hidden, updated_coords, stats, attn_weights
@@ -158,20 +164,6 @@ class GravityAttention(nn.Module):
         if return_attn:
             return updated_hidden, updated_coords, attn_weights
         return updated_hidden, updated_coords
-
-class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, dropout=0.1):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout)
-        )
-
-    def forward(self, x):
-        return self.net(x)
 
 class NGTBlock(nn.Module):
     def __init__(self, hidden_dim, coord_dim, num_heads, mlp_dim, dropout=0.1,
@@ -241,6 +233,8 @@ class NewtonGravityTransformer(nn.Module):
         
         self.norm = nn.LayerNorm(hidden_dim)
         self.head = nn.Linear(hidden_dim, num_tokens)
+        # Weight tying: share input embedding and output projection weights
+        self.head.weight = self.token_emb.weight
 
     def forward(self, x, mask=None, return_stats=False, return_last_coords=False):
         b, l = x.size()

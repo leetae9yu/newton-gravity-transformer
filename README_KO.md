@@ -60,9 +60,10 @@ Score(i, j) = -gamma * (mass_i * mass_j) / (distance(i, j)**2 + epsilon)
 
 ### 1. 중력 어텐션 커널
 
-$$\text{Score}_{ij} = -\gamma \cdot \frac{m_i \cdot m_j}{\|z_i - z_j\|^2 + \epsilon}$$
+$$\text{Score}_{ij} = -\gamma \cdot \frac{m_i \cdot m_j}{\|z_i - z_j\|^2 + \epsilon} + \beta$$
 
 - **$\gamma$ (중력 상수)**: 전체 상호작용 강도를 제어하는 학습 가능한 파라미터
+- **$\beta$ (중력 바이어스)**: 헤드별 학습 가능한 바이어스로, softmax의 dynamic range를 확장하여 점수가 양수/음수 모두 가능하게 한다
 - **$m$ (질량)**: 토큰의 "중요도" 또는 "인력"을 나타내는 학습된 스칼라
 - **$z$ (좌표)**: 저차원 잠재 매니폴드에서의 토큰 위치 $(d=16, 32)$
 
@@ -141,6 +142,10 @@ T4 무료 GPU로 5k 스텝을 학습했습니다 :)
 | 플래그 | 기본값 | 설명 |
 |------|---------|-------------|
 | `--use-amp` | Off | Automatic Mixed Precision(FP16/FP32)을 활성화. CUDA GPU에서 학습 속도 ~1.5-2배 향상. CPU에서는 자동 무시. |
+| `--use-cosine-schedule` | Off | Cosine annealing LR 스케줄을 활성화. 학습률이 초기값에서 0 근처까지 부드럽게 감소. |
+| `--warmup-steps` | 0 | Cosine decay 전 선형 워밍업 스텝 수. 초기 gravity 파라미터 안정화에 유용. |
+| `--lambda-repulsion` | 0.05 | Repulsion loss 가중치. 좌표 공간에서 토큰이 서로 밀어내는 강도를 조절. |
+| `--repulsion-interval` | 1 | N스텝마다 repulsion loss 계산. 좌표가 분산된 후 O(L²) 오버헤드를 줄일 수 있음. |
 | `--data-path` | `data/input.txt` | 학습 텍스트 파일 경로. |
 
 #### 예시: Ablation 실험 실행
@@ -158,8 +163,9 @@ python train_shakespeare.py --mass-in-value --checkpoint-path checkpoints/ngt_mi
 # soft cutoff만 적용
 python train_shakespeare.py --use-soft-cutoff --checkpoint-path checkpoints/ngt_soft.pt
 
-# 모든 최적화 + AMP
+# 모든 최적화 + AMP + cosine 스케줄 + 워밍업
 python train_shakespeare.py --use-rsqrt --mass-in-value --use-soft-cutoff --use-amp \
+    --use-cosine-schedule --warmup-steps 200 \
     --checkpoint-path checkpoints/ngt_all_opt.pt
 
 # 바닐라 베이스라인 + AMP
@@ -232,6 +238,37 @@ tensorboard --logdir runs
 - **해석 가능성 도구**: 잠재 매니폴드 진화를 시각화하는 새로운 방법
 
 언제든 이슈를 열거나 PR을 제출해주세요!
+
+---
+
+## 변경 이력
+
+### v0.2 — 아키텍처 및 안정성 전면 개선
+
+**버그 수정**
+- last 체크포인트에 ablation config 누락(`use_rsqrt`, `mass_in_value`, `use_soft_cutoff`) 수정 — `--resume` 시 실험 플래그가 리셋되는 문제 해결
+- `chat.py`의 `generate()`에서 모델이 tuple을 반환할 때 처리하지 않는 버그 수정
+- 좌표 진화가 attention 이전 hidden states를 사용하던 문제 수정 — 이제 상호작용 결과를 기반으로 좌표가 업데이트됨
+
+**수치 안정성**
+- softmax 후 불필요한 재정규화 제거 (gradient 왜곡 방지)
+- 거리 계산 공식을 `||a||² + ||b||² - 2a·b`에서 직접 차이 `(z_i - z_j)²`로 변경 (catastrophic cancellation 방지)
+- 모든 마스킹 값을 `-1e9`에서 `torch.finfo(dtype).min`으로 변경 (softmax에서 정확한 0 보장, AMP 안전)
+
+**새 기능**
+- **Gravity Bias**: 헤드별 학습 가능한 바이어스($\beta$)로 softmax dynamic range 확장
+- **Weight Tying**: 입력 임베딩과 출력 projection 가중치 공유 (GPT-2/BERT 표준 기법), 파라미터 수 감소
+- **Cosine LR Schedule**: `--use-cosine-schedule` + `--warmup-steps`로 부드러운 수렴
+- **Repulsion 제어**: `--lambda-repulsion` (가중치) 및 `--repulsion-interval` (주기적 계산) 플래그 추가
+
+**코드 품질**
+- 공유 `FeedForward`와 `build_causal_mask`를 `common.py`로 추출, 4개 파일에서 중복 제거
+- `VanillaTransformer`에 `max_seq_len` 초과 입력 truncation 추가 (NGT와 동일 동작)
+- `chat.py` import 순서 PEP 8 준수로 수정
+- 모든 `torch.load()`에 `weights_only=False` 명시 (PyTorch 2.6+ 호환)
+
+**테스트**
+- 16개 새 테스트 추가: VanillaTransformer, 토크나이저 왕복, ablation 조합, edge case(seq_len=1, max_seq_len 초과), soft cutoff, weight tying, gravity bias
 
 ---
 

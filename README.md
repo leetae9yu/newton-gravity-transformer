@@ -60,9 +60,10 @@ As the token semantics ($h$) update, they drive the movements of the coordinates
 
 ### 1. Gravity Attention Kernel
 
-$$\text{Score}_{ij} = -\gamma \cdot \frac{m_i \cdot m_j}{\|z_i - z_j\|^2 + \epsilon}$$
+$$\text{Score}_{ij} = -\gamma \cdot \frac{m_i \cdot m_j}{\|z_i - z_j\|^2 + \epsilon} + \beta$$
 
 - **$\gamma$ (Gravitational Constant)**: A learnable parameter controlling the overall interaction strength.
+- **$\beta$ (Gravity Bias)**: A learnable per-head bias that widens the softmax dynamic range, allowing scores to be positive or negative.
 - **$m$ (Mass)**: Learned scalar representing the token's "importance" or "pull".
 - **$z$ (Coordinates)**: Token position in a low-dimensional latent manifold $(d=16, 32)$.
 
@@ -141,6 +142,10 @@ The following flags allow controlled **ablation experiments** to isolate and mea
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--use-amp` | Off | Enables Automatic Mixed Precision (FP16/FP32). Speeds up training ~1.5-2x on CUDA GPUs. Automatically ignored on CPU. |
+| `--use-cosine-schedule` | Off | Enables cosine annealing LR schedule. LR decays smoothly from initial value to near-zero. |
+| `--warmup-steps` | 0 | Number of linear warmup steps before cosine decay begins. Useful for stabilizing gravity parameters early in training. |
+| `--lambda-repulsion` | 0.05 | Weight for the repulsion loss term. Controls how strongly tokens are pushed apart in coordinate space. |
+| `--repulsion-interval` | 1 | Compute repulsion loss every N steps. Higher values reduce O(L²) overhead after coordinates have spread. |
 | `--data-path` | `data/input.txt` | Path to the training text file. |
 
 #### Example: Running Ablation Experiments
@@ -158,8 +163,9 @@ python train_shakespeare.py --mass-in-value --checkpoint-path checkpoints/ngt_mi
 # soft cutoff only
 python train_shakespeare.py --use-soft-cutoff --checkpoint-path checkpoints/ngt_soft.pt
 
-# All optimizations + AMP
+# All optimizations + AMP + cosine schedule with warmup
 python train_shakespeare.py --use-rsqrt --mass-in-value --use-soft-cutoff --use-amp \
+    --use-cosine-schedule --warmup-steps 200 \
     --checkpoint-path checkpoints/ngt_all_opt.pt
 
 # Vanilla baseline + AMP
@@ -232,6 +238,37 @@ As this is an undergraduate personal project, there is plenty of room for improv
 - **Interpretability Tools**: New ways to visualize the latent manifold evolution.
 
 Feel free to open an issue or submit a PR at any time!
+
+---
+
+## Changelog
+
+### v0.2 — Architecture & Stability Overhaul
+
+**Bug Fixes**
+- Fixed last checkpoint missing ablation config (`use_rsqrt`, `mass_in_value`, `use_soft_cutoff`), which caused `--resume` to reset experiment flags
+- Fixed `generate()` in `chat.py` not handling tuple returns from the model
+- Fixed coordinate evolution using pre-attention hidden states instead of post-attention output — coordinates now evolve based on interaction results
+
+**Numerical Stability**
+- Removed unnecessary post-softmax re-normalization that could cause gradient artifacts
+- Replaced squared distance formula (`||a||² + ||b||² - 2a·b`) with direct difference `(z_i - z_j)²` to avoid catastrophic cancellation for nearby tokens
+- Replaced all `-1e9` masking values with `torch.finfo(dtype).min` for exact zero probabilities in softmax (AMP-safe)
+
+**New Features**
+- **Gravity Bias**: Learnable per-head bias ($\beta$) added to gravity scores, widening the softmax dynamic range
+- **Weight Tying**: Input embedding and output projection now share weights (standard in GPT-2/BERT), reducing parameter count
+- **Cosine LR Schedule**: `--use-cosine-schedule` with optional `--warmup-steps` for smoother convergence
+- **Repulsion Controls**: `--lambda-repulsion` (weight) and `--repulsion-interval` (periodic computation) flags for fine-grained control
+
+**Code Quality**
+- Extracted shared `FeedForward` and `build_causal_mask` into `common.py`, removing duplicates across 4 files
+- Added `max_seq_len` truncation to `VanillaTransformer` (matching NGT behavior)
+- Fixed PEP 8 import ordering in `chat.py`
+- Added explicit `weights_only=False` to all `torch.load()` calls for PyTorch 2.6+ compatibility
+
+**Testing**
+- Added 16 new tests: VanillaTransformer, tokenizer round-trip, ablation combinations, edge cases (seq_len=1, max_seq_len overflow), soft cutoff, weight tying, gravity bias
 
 ---
 

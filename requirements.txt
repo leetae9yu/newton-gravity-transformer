@@ -5,3 +5,6 @@ tensorboard
 matplotlib
 scikit-learn
 pillow
+plotly
+tokenizers
+tiktoken

@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from vanilla_model import VanillaTransformer
 from prepare_data import ensure_data
+from tokenizer_utils import build_tokenizer, load_tokenizer
 from train_shakespeare import (
     read_text,
     build_vocab,
@@ -39,6 +40,10 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=DEFAULT_CONFIG["dropout"])
     parser.add_argument("--use-amp", action="store_true", default=False,
                         help="Enable Automatic Mixed Precision (FP16) for faster training on CUDA")
+    parser.add_argument("--tokenizer", type=str, default="char", choices=["char", "bpe", "tiktoken"],
+                        help="Tokenizer type: char (default), bpe, or tiktoken")
+    parser.add_argument("--bpe-vocab-size", type=int, default=4000,
+                        help="BPE vocabulary size (only used with --tokenizer bpe)")
     return parser.parse_args()
 
 
@@ -71,9 +76,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     text = read_text(data_path)
-    _, stoi, itos = build_vocab(text)
-    vocab_size = len(stoi)
-    data = encode(text, stoi)
+    tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
+    vocab_size = tokenizer.vocab_size
+    data = tokenizer.encode_to_tensor(text)
 
     split_idx = int(0.9 * len(data))
     train_data = data[:split_idx]
@@ -115,10 +120,29 @@ def main():
         for candidate in (last_checkpoint_path, best_checkpoint_path, checkpoint_path):
             if os.path.exists(candidate):
                 checkpoint = torch.load(candidate, map_location=device)
+                # Restore tokenizer from checkpoint to avoid retraining BPE
+                tokenizer = load_tokenizer(checkpoint["vocab"])
+                vocab_size = tokenizer.vocab_size
+                data = tokenizer.encode_to_tensor(text)
+                split_idx = int(0.9 * len(data))
+                train_data = data[:split_idx]
+                val_data = data[split_idx:]
+                # Rebuild model with restored vocab size
+                model = VanillaTransformer(
+                    num_tokens=vocab_size,
+                    hidden_dim=hidden_dim,
+                    num_layers=num_layers,
+                    num_heads=num_heads,
+                    mlp_dim=mlp_dim,
+                    max_seq_len=block_size,
+                    dropout=dropout,
+                ).to(device)
                 model.load_state_dict(checkpoint["model_state"])
+                optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
                 optimizer.load_state_dict(checkpoint["optimizer_state"])
                 start_step = checkpoint.get("iter", 0)
                 best_val = checkpoint.get("best_val", best_val)
+                mask = build_causal_mask(block_size, device)
                 print(f"Resumed from {candidate} at step {start_step}")
                 break
 
@@ -174,7 +198,7 @@ def main():
                             "dropout": dropout,
                             "vocab_size": vocab_size,
                         },
-                        "vocab": {"stoi": stoi, "itos": itos},
+                        "vocab": tokenizer.save_state(),
                     },
                     best_checkpoint_path,
                 )
@@ -194,7 +218,7 @@ def main():
                 "dropout": dropout,
                 "vocab_size": vocab_size,
             },
-            "vocab": {"stoi": stoi, "itos": itos},
+            "vocab": tokenizer.save_state(),
         },
         last_checkpoint_path,
     )

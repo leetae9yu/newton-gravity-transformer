@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from common import FeedForward
+
 
 class VanillaAttention(nn.Module):
     """Standard scaled dot-product multi-head attention."""
@@ -32,7 +34,7 @@ class VanillaAttention(nn.Module):
 
         if mask is not None:
             mask = mask.to(dtype=torch.bool, device=attn_scores.device)
-            attn_scores = attn_scores.masked_fill(~mask, -1e9)
+            attn_scores = attn_scores.masked_fill(~mask, torch.finfo(attn_scores.dtype).min)
 
         attn_weights = F.softmax(attn_scores, dim=-1)
         attn_weights = self.dropout(attn_weights)
@@ -40,21 +42,6 @@ class VanillaAttention(nn.Module):
 
         attn_output = attn_output.transpose(1, 2).contiguous().view(B, L, self.hidden_dim)
         return self.out_proj(attn_output)
-
-
-class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, dropout=0.1):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, x):
-        return self.net(x)
 
 
 class VanillaBlock(nn.Module):
@@ -92,9 +79,21 @@ class VanillaTransformer(nn.Module):
 
         self.norm = nn.LayerNorm(hidden_dim)
         self.head = nn.Linear(hidden_dim, num_tokens)
+        # Weight tying: share input embedding and output projection weights
+        self.head.weight = self.token_emb.weight
 
     def forward(self, x, mask=None):
         b, l = x.size()
+        max_seq_len = self.pos_emb.num_embeddings
+        if l > max_seq_len:
+            if self.training:
+                raise ValueError(
+                    f"Input sequence length {l} exceeds max_seq_len {max_seq_len} during training."
+                )
+            x = x[:, -max_seq_len:]
+            if mask is not None and mask.size(-1) >= max_seq_len:
+                mask = mask[..., -max_seq_len:, -max_seq_len:]
+            b, l = x.size()
         device = x.device
 
         h = self.token_emb(x)
