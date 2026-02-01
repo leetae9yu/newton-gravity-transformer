@@ -8,3 +8,4 @@ pillow
 plotly
 tokenizers
 tiktoken
+datasets

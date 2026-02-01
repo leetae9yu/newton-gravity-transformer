@@ -126,7 +126,9 @@ def main():
         print("Model type: Vanilla Transformer")
 
     block_size = config["max_seq_len"]
+    dataset_name = config.get("dataset", "shakespeare")
 
+    print(f"Dataset: {dataset_name}")
     print("Loaded checkpoint. Type /quit to exit.")
     while True:
         prompt = input("prompt> ")

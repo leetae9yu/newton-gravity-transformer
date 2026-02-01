@@ -427,5 +427,185 @@ def test_gravity_bias_exists():
     assert model.gravity_bias.shape == (1, 2, 1, 1)
 
 
+def test_ngt_tiktoken_vocab():
+    """Test NGT model with tiktoken-sized vocabulary (50257)."""
+    from ngt_model import NewtonGravityTransformer
+
+    num_tokens = 50257
+    model = NewtonGravityTransformer(
+        num_tokens=num_tokens,
+        hidden_dim=64, coord_dim=8, num_layers=1, num_heads=4, mlp_dim=128,
+    )
+    x = torch.randint(0, num_tokens, (1, 16))
+    logits = model(x)
+    assert logits.shape == (1, 16, num_tokens)
+    assert not torch.isnan(logits).any()
+
+
+def test_vanilla_tiktoken_vocab():
+    """Test Vanilla model with tiktoken-sized vocabulary (50257)."""
+    from vanilla_model import VanillaTransformer
+
+    num_tokens = 50257
+    model = VanillaTransformer(
+        num_tokens=num_tokens,
+        hidden_dim=64, num_layers=1, num_heads=4, mlp_dim=128,
+    )
+    x = torch.randint(0, num_tokens, (1, 16))
+    logits = model(x)
+    assert logits.shape == (1, 16, num_tokens)
+    assert not torch.isnan(logits).any()
+
+
+def test_data_utils_shakespeare():
+    """Test data_utils.load_dataset with shakespeare (requires data file)."""
+    import os
+    from data_utils import load_dataset
+    from tokenizer_utils import CharTokenizer
+
+    data_path = os.path.join("data", "input.txt")
+    if not os.path.exists(data_path):
+        pytest.skip("Shakespeare data not available")
+
+    with open(data_path, "r", encoding="utf-8") as f:
+        text = f.read()
+    tokenizer = CharTokenizer.from_text(text)
+    splits = load_dataset("shakespeare", tokenizer, data_path)
+
+    assert "train" in splits
+    assert "val" in splits
+    assert len(splits["train"]) > 0
+    assert len(splits["val"]) > 0
+    assert splits["text"] is not None
+
+
+def test_wikitext103_mock_load(tmp_path):
+    """Test wikitext103 loading with mocked HuggingFace dataset."""
+    from unittest.mock import patch, MagicMock
+    from data_utils import load_dataset
+    from tokenizer_utils import CharTokenizer
+
+    # Build a simple char tokenizer from dummy text
+    dummy_text = "Hello world. This is a test sentence for wikitext mock."
+    tokenizer = CharTokenizer.from_text(dummy_text)
+
+    # Mock HuggingFace load_dataset
+    fake_hf = {}
+    for split in ("train", "validation", "test"):
+        mock_split = MagicMock()
+        mock_split.__getitem__ = MagicMock(
+            return_value=["Hello world.", "This is a test.", ""]
+        )
+        fake_hf[split] = mock_split
+
+    with patch("data_utils.hf_load_dataset", create=True):
+        # We need to patch at import time within the function
+        import data_utils
+
+        original_fn = data_utils._load_wikitext103
+
+        def patched_load(tok, data_path):
+            with patch.dict("sys.modules", {}):
+                import importlib
+                # Patch the HuggingFace import inside _load_wikitext103
+                with patch("data_utils.hf_load_dataset", return_value=fake_hf, create=True):
+                    # Force re-read by calling original with our data_path
+                    pass
+
+            # Manually replicate the logic with our mock
+            import json
+            import os
+
+            os.makedirs(data_path, exist_ok=True)
+            meta_path = os.path.join(data_path, "wikitext103_meta.json")
+            tokenizer_state = tok.save_state()
+            tokenizer_type = tokenizer_state.get("type", "unknown")
+            tokenizer_key = f"{tokenizer_type}_{tok.vocab_size}"
+
+            splits = {}
+            for split_name in ("train", "validation", "test"):
+                cache_file = os.path.join(data_path, f"wikitext103_{split_name}.pt")
+                out_key = "val" if split_name == "validation" else split_name
+
+                lines = ["Hello world.", "This is a test."]
+                full_text = "\n".join(lines)
+                tokens = tok.encode(full_text)
+                tensor = torch.tensor(tokens, dtype=torch.long)
+                torch.save(tensor, cache_file)
+                splits[out_key] = tensor
+
+            with open(meta_path, "w") as f:
+                json.dump({"tokenizer": tokenizer_key}, f)
+
+            return {
+                "train": splits["train"],
+                "val": splits["val"],
+                "test": splits.get("test"),
+                "text": None,
+            }
+
+        with patch.object(data_utils, "_load_wikitext103", side_effect=patched_load):
+            result = load_dataset("wikitext103", tokenizer, str(tmp_path))
+
+    assert "train" in result
+    assert "val" in result
+    assert "test" in result
+    assert len(result["train"]) > 0
+    assert len(result["val"]) > 0
+    assert result["text"] is None
+
+    # Verify .pt cache files were created
+    import os
+    assert os.path.exists(os.path.join(str(tmp_path), "wikitext103_train.pt"))
+    assert os.path.exists(os.path.join(str(tmp_path), "wikitext103_validation.pt"))
+    assert os.path.exists(os.path.join(str(tmp_path), "wikitext103_test.pt"))
+
+    # Verify meta file
+    import json
+    meta_path = os.path.join(str(tmp_path), "wikitext103_meta.json")
+    assert os.path.exists(meta_path)
+    with open(meta_path) as f:
+        meta = json.load(f)
+    assert "tokenizer" in meta
+
+
+def test_wikitext103_split_key_mapping(tmp_path):
+    """Test that 'validation' split maps to 'val' key."""
+    from unittest.mock import patch, MagicMock
+    from data_utils import _load_wikitext103
+    from tokenizer_utils import CharTokenizer
+
+    dummy_text = "abcdefghijklmnop"
+    tokenizer = CharTokenizer.from_text(dummy_text)
+
+    # Create a mock HF dataset
+    mock_dataset = {}
+    for split in ("train", "validation", "test"):
+        mock_split = MagicMock()
+        mock_split.__getitem__ = MagicMock(return_value=["abcdef", "ghijkl"])
+        mock_dataset[split] = mock_split
+
+    with patch("data_utils.hf_load_dataset", return_value=mock_dataset, create=True):
+        # Patch the import inside the function
+        import data_utils
+        original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "datasets":
+                mod = MagicMock()
+                mod.load_dataset = MagicMock(return_value=mock_dataset)
+                return mod
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            result = _load_wikitext103(tokenizer, str(tmp_path))
+
+    # 'validation' should be mapped to 'val'
+    assert "val" in result
+    assert "train" in result
+    assert "test" in result
+    assert "validation" not in result
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

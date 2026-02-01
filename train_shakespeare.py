@@ -3,6 +3,7 @@ import math
 import os
 import pickle
 import time
+from datetime import datetime
 
 import torch
 import torch.nn as nn
@@ -11,6 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from common import build_causal_mask
 from ngt_model import NewtonGravityTransformer
+from data_utils import load_dataset
 from prepare_data import ensure_data
 from tokenizer_utils import build_tokenizer, load_tokenizer
 
@@ -168,9 +170,55 @@ DEFAULT_CONFIG = {
     "dropout": 0.1,
 }
 
+_WIKITEXT103_BASE = {
+    "data_path": "data",
+    "batch_size": 32,
+    "block_size": 512,
+    "max_steps": 100000,
+    "eval_interval": 500,
+    "eval_iters": 100,
+    "learning_rate": 3e-4,
+    "grad_clip": 1.0,
+    "hidden_dim": 512,
+    "num_layers": 8,
+    "num_heads": 8,
+    "mlp_dim": 2048,
+    "dropout": 0.1,
+}
+
+WIKITEXT103_CONFIG = {
+    **_WIKITEXT103_BASE,
+    "coord_dim": 64,
+    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext103.pt"),
+}
+
+
+def _apply_preset(args, preset, *default_dicts):
+    """Apply preset defaults for arguments not explicitly set on the CLI.
+
+    ``default_dicts`` are additional dicts whose values are treated as
+    defaults (i.e. if the current attribute value equals any of them,
+    it will be overwritten by the preset).
+    """
+    for key, value in preset.items():
+        attr = key.replace("-", "_")
+        current = getattr(args, attr, None)
+        if current is None:
+            setattr(args, attr, value)
+            continue
+        # Overwrite if current value matches any known default
+        for d in (DEFAULT_CONFIG, *default_dicts):
+            if current == d.get(key):
+                setattr(args, attr, value)
+                break
+    return args
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train NGT on TinyShakespeare.")
+    parser.add_argument("--dataset", type=str, default="shakespeare",
+                        choices=["shakespeare", "wikitext103"],
+                        help="Dataset to train on (default: shakespeare)")
     parser.add_argument("--data-path", default=DEFAULT_CONFIG["data_path"])
     parser.add_argument("--checkpoint-path", default=DEFAULT_CONFIG["checkpoint_path"])
     parser.add_argument("--resume", action="store_true", default=DEFAULT_CONFIG["resume"])
@@ -212,13 +260,21 @@ def parse_args():
                         help="Tokenizer type: char (default), bpe, or tiktoken")
     parser.add_argument("--bpe-vocab-size", type=int, default=4000,
                         help="BPE vocabulary size (only used with --tokenizer bpe)")
-    return parser.parse_args()
+    parser.add_argument("--run-name", type=str, default=None,
+                        help="Custom TensorBoard run directory name (default: auto-generated)")
+    args = parser.parse_args()
+    if args.dataset == "wikitext103":
+        _apply_preset(args, WIKITEXT103_CONFIG)
+    return args
 
 
 def main():
     args = parse_args()
 
-    data_path = ensure_data(args.data_path)
+    if args.dataset == "shakespeare":
+        data_path = ensure_data(args.data_path)
+    else:
+        data_path = args.data_path
     checkpoint_path = args.checkpoint_path
     best_checkpoint_path = f"{checkpoint_path}_best.pt"
     last_checkpoint_path = f"{checkpoint_path}_last.pt"
@@ -252,24 +308,27 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    text = read_text(data_path)
-
     # --- Tokenizer setup (may be overridden by checkpoint on resume) ---
-    tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
-    vocab_size = tokenizer.vocab_size
-    data = tokenizer.encode_to_tensor(text)
+    if args.dataset == "wikitext103":
+        tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
+        if args.tokenizer != "tiktoken":
+            print(f"Warning: wikitext103 is best used with --tokenizer tiktoken (got {args.tokenizer})")
+    else:
+        text = read_text(data_path)
+        tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
 
-    # Probe words only make sense for char-level tokenizer
-    use_char_tokenizer = args.tokenizer == "char"
+    splits = load_dataset(args.dataset, tokenizer, data_path)
+    train_data, val_data = splits["train"], splits["val"]
+    text = splits.get("text")  # None for wikitext103
+    vocab_size = tokenizer.vocab_size
+
+    # Probe words only make sense for char-level tokenizer with shakespeare
+    use_char_tokenizer = args.tokenizer == "char" and text is not None
     if use_char_tokenizer:
         _, stoi, itos = build_vocab(text)
         probe_word_ids = encode_probe_words(stoi)
     else:
         stoi, itos, probe_word_ids = None, None, {}
-
-    split_idx = int(0.9 * len(data))
-    train_data = data[:split_idx]
-    val_data = data[split_idx:]
 
     use_radius_cutoff = not args.no_radius_cutoff
     use_repulsion = not args.no_repulsion
@@ -299,7 +358,26 @@ def main():
     criterion = nn.CrossEntropyLoss()
     mask = build_causal_mask(block_size, device)
     scaler = torch.amp.GradScaler(enabled=use_amp)
-    writer = SummaryWriter(log_dir="runs/ngt_experiment")
+
+    # Auto-generate TensorBoard run directory name
+    if args.run_name:
+        run_dir = os.path.join("runs", args.run_name)
+    else:
+        ablation_parts = []
+        if args.no_radius_cutoff:
+            ablation_parts.append("no_radius")
+        if args.no_repulsion:
+            ablation_parts.append("no_repulsion")
+        if args.use_rsqrt:
+            ablation_parts.append("rsqrt")
+        if args.mass_in_value:
+            ablation_parts.append("mass_val")
+        if args.use_soft_cutoff:
+            ablation_parts.append("soft_cutoff")
+        ablation_str = "_".join(ablation_parts) if ablation_parts else "default"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = os.path.join("runs", f"ngt_{args.dataset}_{ablation_str}_{timestamp}")
+    writer = SummaryWriter(log_dir=run_dir)
 
     # LR scheduler setup
     scheduler = None
@@ -324,10 +402,8 @@ def main():
                 # Restore tokenizer from checkpoint to avoid retraining BPE
                 tokenizer = load_tokenizer(checkpoint["vocab"])
                 vocab_size = tokenizer.vocab_size
-                data = tokenizer.encode_to_tensor(text)
-                split_idx = int(0.9 * len(data))
-                train_data = data[:split_idx]
-                val_data = data[split_idx:]
+                splits = load_dataset(args.dataset, tokenizer, data_path)
+                train_data, val_data = splits["train"], splits["val"]
                 # Rebuild model with restored vocab size
                 model = NewtonGravityTransformer(
                     num_tokens=vocab_size,
@@ -391,7 +467,7 @@ def main():
         optimizer.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         scaler.step(optimizer)
         scaler.update()
         if scheduler is not None:
@@ -466,6 +542,27 @@ def main():
             writer.add_scalar("loss/val", val_loss, step + 1)
             writer.add_scalar("loss/repulsion", eval_rep_loss, step + 1)
 
+            # Learning rate and gradient norm
+            current_lr = optimizer.param_groups[0]["lr"]
+            writer.add_scalar("lr", current_lr, step + 1)
+            writer.add_scalar("grad_norm", grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm, step + 1)
+
+            # NGT-specific: gamma and radius distributions
+            gammas = []
+            radii = []
+            for layer in model.layers:
+                if hasattr(layer.attn, "gamma"):
+                    gammas.append(torch.nn.functional.softplus(layer.attn.gamma).detach())
+                if hasattr(layer.attn, "radius_param"):
+                    radii.append(torch.nn.functional.softplus(layer.attn.radius_param).detach())
+            if gammas:
+                all_gamma = torch.cat([g.flatten() for g in gammas])
+                writer.add_scalar("ngt/gamma_mean", all_gamma.mean().item(), step + 1)
+                writer.add_scalar("ngt/gamma_std", all_gamma.std().item(), step + 1)
+            if radii:
+                all_radius = torch.stack(radii)
+                writer.add_scalar("ngt/radius_mean", all_radius.mean().item(), step + 1)
+
             if val_loss < best_val:
                 best_val = val_loss
                 torch.save(
@@ -483,6 +580,7 @@ def main():
                             "max_seq_len": block_size,
                             "dropout": dropout,
                             "vocab_size": vocab_size,
+                            "dataset": args.dataset,
                             "use_radius_cutoff": use_radius_cutoff,
                             "use_rsqrt": use_rsqrt,
                             "mass_in_value": mass_in_value,
@@ -508,6 +606,7 @@ def main():
                 "max_seq_len": block_size,
                 "dropout": dropout,
                 "vocab_size": vocab_size,
+                "dataset": args.dataset,
                 "use_radius_cutoff": use_radius_cutoff,
                 "use_rsqrt": use_rsqrt,
                 "mass_in_value": mass_in_value,
@@ -517,6 +616,36 @@ def main():
         },
         last_checkpoint_path,
     )
+
+    # Log hyperparameters and final metrics for TensorBoard HParams tab
+    final_train_loss = estimate_loss(
+        model, train_data, block_size, batch_size, device, mask, criterion, eval_iters
+    )
+    hparam_dict = {
+        "dataset": args.dataset,
+        "hidden_dim": hidden_dim,
+        "coord_dim": coord_dim,
+        "num_layers": num_layers,
+        "num_heads": num_heads,
+        "mlp_dim": mlp_dim,
+        "block_size": block_size,
+        "batch_size": batch_size,
+        "learning_rate": learning_rate,
+        "dropout": dropout,
+        "use_radius_cutoff": use_radius_cutoff,
+        "use_repulsion": use_repulsion,
+        "use_rsqrt": use_rsqrt,
+        "mass_in_value": mass_in_value,
+        "use_soft_cutoff": use_soft_cutoff,
+        "use_cosine_schedule": args.use_cosine_schedule,
+        "warmup_steps": args.warmup_steps,
+        "tokenizer": args.tokenizer,
+    }
+    metric_dict = {
+        "best_val_loss": best_val,
+        "final_train_loss": final_train_loss,
+    }
+    writer.add_hparams(hparam_dict, metric_dict)
     writer.close()
 
 
