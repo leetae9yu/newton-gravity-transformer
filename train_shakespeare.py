@@ -45,12 +45,24 @@ def get_batch(data, block_size, batch_size, device):
     return x.to(device), y.to(device)
 
 
-def compute_repulsion_loss(z, mass=None, alpha=2.0, min_dist=1e-3):
+def compute_repulsion_loss(z, mass=None, alpha=2.0, min_dist=1e-3, max_samples=64):
     if z.dim() == 2:
         z = z.unsqueeze(0)
 
-    dists = torch.cdist(z, z, p=2).clamp_min(min_dist)
-    denom = dists.pow(alpha)
+    # Sample tokens to avoid O(L^2) full pairwise computation
+    seq_len = z.size(1)
+    if seq_len > max_samples:
+        idx = torch.randperm(seq_len, device=z.device)[:max_samples]
+        z = z[:, idx, :]
+        if mass is not None:
+            mass = mass[:, idx, :]
+        seq_len = max_samples
+
+    # Squared distances directly (skip sqrt for speed)
+    diff = z.unsqueeze(2) - z.unsqueeze(1)
+    squared_dist = (diff * diff).sum(-1).clamp_min(min_dist * min_dist)
+    # alpha=2 on Euclidean dist = alpha=1 on squared dist
+    denom = squared_dist if alpha == 2.0 else squared_dist.pow(alpha / 2.0)
 
     if mass is None:
         mass_tensor = torch.ones(z.shape[:-1], device=z.device, dtype=z.dtype)
@@ -64,7 +76,6 @@ def compute_repulsion_loss(z, mass=None, alpha=2.0, min_dist=1e-3):
     mass_products = mass_tensor.unsqueeze(-1) * mass_tensor.unsqueeze(-2)
     energy = mass_products / denom
 
-    seq_len = z.size(1)
     pair_mask = torch.triu(
         torch.ones(seq_len, seq_len, device=z.device, dtype=torch.bool), diagonal=1
     ).unsqueeze(0)
