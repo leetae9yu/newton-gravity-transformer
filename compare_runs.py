@@ -50,6 +50,7 @@ def parse_checkpoint(path):
         "num_layers": config.get("num_layers", "?"),
         "num_heads": config.get("num_heads", "?"),
         "ablation_flags": ",".join(ablation_flags) if ablation_flags else "default",
+        "seed": config.get("seed", "?"),
         "best_val_loss": ckpt.get("best_val", None),
         "total_steps": ckpt.get("iter", None),
     }
@@ -62,6 +63,7 @@ COLUMNS = [
     "num_layers",
     "num_heads",
     "ablation_flags",
+    "seed",
     "best_val_loss",
     "total_steps",
     "path",

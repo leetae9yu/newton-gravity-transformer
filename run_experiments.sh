@@ -3,8 +3,10 @@ set -e
 
 # ============================================================
 #  NGT Full Experiment Suite
-#  Run all experiments sequentially on a single GPU.
-#  Checkpoints + TensorBoard logs are saved per-run.
+#
+#  - NGT ablations: 3 seeds each for statistical significance
+#  - Vanilla baseline: 1 run per dataset
+#  - WikiText-103: 50k steps (sufficient for convergence trends)
 #
 #  Usage:
 #    bash run_experiments.sh                  # all experiments
@@ -15,89 +17,143 @@ set -e
 cd /workspace/ngt
 
 FILTER="${1:-all}"
+SEEDS="42 123 7"
 
 # Common flags
-COMMON_SHAKESPEARE="--use-cosine-schedule --warmup-steps 500"
-COMMON_WIKI="--dataset wikitext103 --tokenizer tiktoken --use-cosine-schedule --warmup-steps 2000 --use-amp"
+COMMON_SHK="--use-cosine-schedule --warmup-steps 500"
+COMMON_WIKI="--dataset wikitext103 --tokenizer tiktoken --use-cosine-schedule --warmup-steps 2000 --use-amp --max-steps 50000"
+
+STARTED=$(date '+%Y-%m-%d %H:%M:%S')
+TOTAL=0
+FAILED=0
 
 run() {
     local name="$1"
     shift
+    TOTAL=$((TOTAL + 1))
     echo ""
     echo "========================================"
-    echo " Experiment: $name"
-    echo " Command: $@"
-    echo " Started: $(date '+%Y-%m-%d %H:%M:%S')"
+    echo " [$TOTAL] $name"
+    echo " $(date '+%Y-%m-%d %H:%M:%S')"
     echo "========================================"
-    time "$@"
-    echo " Finished: $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "========================================"
+    echo " > $@"
     echo ""
+    if time "$@"; then
+        echo " [OK] $name"
+    else
+        echo " [FAIL] $name"
+        FAILED=$((FAILED + 1))
+    fi
+    echo "========================================"
 }
 
-# ---- Shakespeare experiments ----
+# ============================================================
+#  Shakespeare (5k steps, fast)
+# ============================================================
 if [ "$FILTER" = "all" ] || [ "$FILTER" = "shakespeare" ]; then
-    echo "=== Phase 1: Shakespeare ==="
+    echo ""
+    echo "########################################"
+    echo "#  Phase 1: Shakespeare                #"
+    echo "########################################"
 
-    run "NGT Shakespeare (default)" \
-        python train_shakespeare.py $COMMON_SHAKESPEARE
+    # --- Vanilla baseline (1 run) ---
+    run "Vanilla Shakespeare" \
+        python train_shakespeare_vanilla.py $COMMON_SHK --seed 42
 
-    run "Vanilla Shakespeare (baseline)" \
-        python train_shakespeare_vanilla.py $COMMON_SHAKESPEARE
+    # --- NGT ablations (3 seeds each) ---
+    for SEED in $SEEDS; do
+        run "NGT Shakespeare default (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_SHK --seed $SEED
+    done
 
-    run "NGT Shakespeare (no radius cutoff)" \
-        python train_shakespeare.py $COMMON_SHAKESPEARE --no-radius-cutoff
+    for SEED in $SEEDS; do
+        run "NGT Shakespeare no_radius (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_SHK --seed $SEED --no-radius-cutoff
+    done
 
-    run "NGT Shakespeare (no repulsion)" \
-        python train_shakespeare.py $COMMON_SHAKESPEARE --no-repulsion
+    for SEED in $SEEDS; do
+        run "NGT Shakespeare no_repulsion (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_SHK --seed $SEED --no-repulsion
+    done
 
-    run "NGT Shakespeare (rsqrt)" \
-        python train_shakespeare.py $COMMON_SHAKESPEARE --use-rsqrt
+    for SEED in $SEEDS; do
+        run "NGT Shakespeare rsqrt (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_SHK --seed $SEED --use-rsqrt
+    done
 
-    run "NGT Shakespeare (mass in value)" \
-        python train_shakespeare.py $COMMON_SHAKESPEARE --mass-in-value
+    for SEED in $SEEDS; do
+        run "NGT Shakespeare mass_val (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_SHK --seed $SEED --mass-in-value
+    done
 
-    run "NGT Shakespeare (soft cutoff)" \
-        python train_shakespeare.py $COMMON_SHAKESPEARE --use-soft-cutoff
+    for SEED in $SEEDS; do
+        run "NGT Shakespeare soft_cutoff (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_SHK --seed $SEED --use-soft-cutoff
+    done
 fi
 
-# ---- WikiText-103 experiments ----
+# ============================================================
+#  WikiText-103 (50k steps)
+# ============================================================
 if [ "$FILTER" = "all" ] || [ "$FILTER" = "wikitext103" ]; then
-    echo "=== Phase 2: WikiText-103 ==="
+    echo ""
+    echo "########################################"
+    echo "#  Phase 2: WikiText-103 (50k steps)   #"
+    echo "########################################"
 
-    run "NGT WikiText-103 (default)" \
-        python train_shakespeare.py $COMMON_WIKI
+    # --- Vanilla baseline (1 run) ---
+    run "Vanilla WikiText-103" \
+        python train_shakespeare_vanilla.py $COMMON_WIKI --seed 42
 
-    run "Vanilla WikiText-103 (baseline)" \
-        python train_shakespeare_vanilla.py $COMMON_WIKI
+    # --- NGT ablations (3 seeds each) ---
+    for SEED in $SEEDS; do
+        run "NGT WikiText-103 default (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_WIKI --seed $SEED
+    done
 
-    run "NGT WikiText-103 (no radius cutoff)" \
-        python train_shakespeare.py $COMMON_WIKI --no-radius-cutoff
+    for SEED in $SEEDS; do
+        run "NGT WikiText-103 no_radius (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_WIKI --seed $SEED --no-radius-cutoff
+    done
 
-    run "NGT WikiText-103 (no repulsion)" \
-        python train_shakespeare.py $COMMON_WIKI --no-repulsion
+    for SEED in $SEEDS; do
+        run "NGT WikiText-103 no_repulsion (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_WIKI --seed $SEED --no-repulsion
+    done
 
-    run "NGT WikiText-103 (rsqrt)" \
-        python train_shakespeare.py $COMMON_WIKI --use-rsqrt
+    for SEED in $SEEDS; do
+        run "NGT WikiText-103 rsqrt (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_WIKI --seed $SEED --use-rsqrt
+    done
 
-    run "NGT WikiText-103 (mass in value)" \
-        python train_shakespeare.py $COMMON_WIKI --mass-in-value
+    for SEED in $SEEDS; do
+        run "NGT WikiText-103 mass_val (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_WIKI --seed $SEED --mass-in-value
+    done
 
-    run "NGT WikiText-103 (soft cutoff)" \
-        python train_shakespeare.py $COMMON_WIKI --use-soft-cutoff
+    for SEED in $SEEDS; do
+        run "NGT WikiText-103 soft_cutoff (seed=$SEED)" \
+            python train_shakespeare.py $COMMON_WIKI --seed $SEED --use-soft-cutoff
+    done
 fi
 
-# ---- Summary ----
+# ============================================================
+#  Summary
+# ============================================================
 echo ""
 echo "============================================"
 echo " All experiments complete!"
-echo " $(date '+%Y-%m-%d %H:%M:%S')"
+echo " Started: $STARTED"
+echo " Ended:   $(date '+%Y-%m-%d %H:%M:%S')"
+echo " Total:   $TOTAL runs ($FAILED failed)"
 echo "============================================"
 echo ""
 echo "Results:"
 python compare_runs.py checkpoints/*.pt 2>/dev/null || echo "(no checkpoints found)"
 echo ""
-echo "CSV export:"
-python compare_runs.py checkpoints/*.pt --csv results.csv 2>/dev/null || true
+python compare_runs.py checkpoints/*.pt --csv results.csv 2>/dev/null && echo "Saved: results.csv" || true
 echo ""
 echo "TensorBoard: http://<your-pod-ip>:6006"
+echo ""
+echo "To download results:"
+echo "  tar czf results_bundle.tar.gz runs/ checkpoints/ results.csv"

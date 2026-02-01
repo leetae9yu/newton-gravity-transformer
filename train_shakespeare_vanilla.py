@@ -69,6 +69,8 @@ def parse_args():
                         help="BPE vocabulary size (only used with --tokenizer bpe)")
     parser.add_argument("--run-name", type=str, default=None,
                         help="Custom TensorBoard run directory name (default: auto-generated)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Random seed for reproducibility")
     args = parser.parse_args()
     if args.dataset == "wikitext103":
         _apply_preset(args, WIKITEXT103_VANILLA_CONFIG, VANILLA_DEFAULTS)
@@ -77,6 +79,12 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # Seed for reproducibility
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
 
     if args.dataset == "shakespeare":
         data_path = ensure_data(args.data_path)
@@ -151,8 +159,9 @@ def main():
     if args.run_name:
         run_dir = os.path.join("runs", args.run_name)
     else:
+        seed_str = f"_s{args.seed}" if args.seed is not None else ""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_dir = os.path.join("runs", f"vanilla_{args.dataset}_{timestamp}")
+        run_dir = os.path.join("runs", f"vanilla_{args.dataset}{seed_str}_{timestamp}")
     writer = SummaryWriter(log_dir=run_dir)
 
     # LR scheduler setup
@@ -258,6 +267,7 @@ def main():
                             "dropout": dropout,
                             "vocab_size": vocab_size,
                             "dataset": args.dataset,
+                            "seed": args.seed,
                         },
                         "vocab": tokenizer.save_state(),
                     },
@@ -279,6 +289,7 @@ def main():
                 "dropout": dropout,
                 "vocab_size": vocab_size,
                 "dataset": args.dataset,
+                "seed": args.seed,
             },
             "vocab": tokenizer.save_state(),
         },
@@ -302,6 +313,7 @@ def main():
         "use_cosine_schedule": args.use_cosine_schedule,
         "warmup_steps": args.warmup_steps,
         "tokenizer": args.tokenizer,
+        "seed": args.seed if args.seed is not None else -1,
     }
     metric_dict = {
         "best_val_loss": best_val,
