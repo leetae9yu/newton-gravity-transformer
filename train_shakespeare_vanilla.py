@@ -12,7 +12,12 @@ from torch.utils.tensorboard import SummaryWriter
 from vanilla_model import VanillaTransformer
 from data_utils import load_dataset
 from prepare_data import ensure_data
-from tokenizer_utils import build_tokenizer, load_tokenizer
+from tokenizer_utils import (
+    build_tokenizer,
+    load_tokenizer,
+    load_tokenizer_from_path,
+    save_tokenizer_to_path,
+)
 from train_shakespeare import (
     read_text,
     build_vocab,
@@ -67,6 +72,8 @@ def parse_args():
                         help="Tokenizer type: char (default), bpe, or tiktoken")
     parser.add_argument("--bpe-vocab-size", type=int, default=4000,
                         help="BPE vocabulary size (only used with --tokenizer bpe)")
+    parser.add_argument("--tokenizer-path", type=str, default=None,
+                        help="Path to tokenizer state JSON to load/save for reproducibility (recommended for wikitext103)")
     parser.add_argument("--run-name", type=str, default=None,
                         help="Custom TensorBoard run directory name (default: auto-generated)")
     parser.add_argument("--seed", type=int, default=None,
@@ -118,22 +125,34 @@ def main():
 
     accum_steps = args.gradient_accumulation_steps
 
-    # --- Tokenizer setup ---
-    if args.dataset == "wikitext103":
-        if args.tokenizer == "bpe":
-            from datasets import load_dataset as hf_load_dataset
-            print("Loading WikiText-103 text for BPE training...")
-            ds = hf_load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
-            bpe_text = "\n".join(line for line in ds["text"] if line.strip())
-            tokenizer = build_tokenizer(bpe_text, "bpe", args.bpe_vocab_size)
-            del bpe_text, ds
+    # --- Tokenizer setup (reproducible across runs if --tokenizer-path is used) ---
+    tokenizer = None
+    if args.tokenizer_path and os.path.exists(args.tokenizer_path):
+        tokenizer = load_tokenizer_from_path(args.tokenizer_path)
+        tok_type = tokenizer.save_state().get("type")
+        if tok_type != args.tokenizer:
+            print(f"Warning: --tokenizer={args.tokenizer} but tokenizer file is type={tok_type}; using tokenizer file.")
+
+    if tokenizer is None:
+        if args.dataset == "wikitext103":
+            if args.tokenizer == "bpe":
+                from datasets import load_dataset as hf_load_dataset
+                print("Loading WikiText-103 text for BPE training...")
+                ds = hf_load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
+                bpe_text = "\n".join(line for line in ds["text"] if line.strip())
+                tokenizer = build_tokenizer(bpe_text, "bpe", args.bpe_vocab_size)
+                del bpe_text, ds
+            else:
+                tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
+            if args.tokenizer == "char":
+                print(f"Warning: wikitext103 is best used with --tokenizer bpe or tiktoken (got {args.tokenizer})")
         else:
-            tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
-        if args.tokenizer == "char":
-            print(f"Warning: wikitext103 is best used with --tokenizer bpe or tiktoken (got {args.tokenizer})")
-    else:
-        text = read_text(data_path)
-        tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
+            text = read_text(data_path)
+            tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
+
+        if args.tokenizer_path:
+            save_tokenizer_to_path(tokenizer, args.tokenizer_path)
+            print(f"Saved tokenizer to {args.tokenizer_path}")
 
     splits = load_dataset(args.dataset, tokenizer, data_path)
     train_data, val_data = splits["train"], splits["val"]

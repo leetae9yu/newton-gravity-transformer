@@ -8,8 +8,16 @@ Supports:
 
 import json
 import os
+import hashlib
 
 import torch
+
+
+def _tokenizer_fingerprint(tokenizer) -> str:
+    """Stable fingerprint for tokenizer state to validate cached encodings."""
+    state = tokenizer.save_state()
+    payload = json.dumps(state, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _load_shakespeare(tokenizer, data_path):
@@ -37,15 +45,17 @@ def _load_wikitext103(tokenizer, data_path):
     meta_path = os.path.join(data_path, "wikitext103_meta.json")
     tokenizer_state = tokenizer.save_state()
     tokenizer_type = tokenizer_state.get("type", "unknown")
-    tokenizer_key = f"{tokenizer_type}_{tokenizer.vocab_size}"
+    fingerprint = _tokenizer_fingerprint(tokenizer)
+    tokenizer_key = f"{tokenizer_type}_{tokenizer.vocab_size}_{fingerprint[:12]}"
 
     # Check cache validity
     cache_valid = True
     if os.path.exists(meta_path):
         with open(meta_path, "r") as f:
             meta = json.load(f)
-        if meta.get("tokenizer") != tokenizer_key:
-            print(f"Tokenizer mismatch (cached={meta.get('tokenizer')}, current={tokenizer_key}). Re-encoding...")
+        cached_key = meta.get("tokenizer")
+        if cached_key != tokenizer_key:
+            print(f"Tokenizer mismatch (cached={cached_key}, current={tokenizer_key}). Re-encoding...")
             cache_valid = False
     else:
         cache_valid = False
@@ -79,7 +89,7 @@ def _load_wikitext103(tokenizer, data_path):
 
     if not cache_valid:
         with open(meta_path, "w") as f:
-            json.dump({"tokenizer": tokenizer_key}, f)
+            json.dump({"tokenizer": tokenizer_key, "tokenizer_fingerprint": fingerprint}, f)
 
     return {
         "train": splits["train"],

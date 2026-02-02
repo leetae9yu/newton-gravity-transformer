@@ -10,6 +10,7 @@ All tokenizers expose:
 """
 
 import json
+import os
 from abc import ABC, abstractmethod
 
 import torch
@@ -191,3 +192,18 @@ def load_tokenizer(state: dict) -> BaseTokenizer:
         return TiktokenTokenizer.from_state(state)
     else:
         raise ValueError(f"Unknown tokenizer type in checkpoint: {tok_type}")
+
+
+def save_tokenizer_to_path(tokenizer: BaseTokenizer, path: str) -> None:
+    """Save tokenizer state to a JSON file."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    state = tokenizer.save_state()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
+
+
+def load_tokenizer_from_path(path: str) -> BaseTokenizer:
+    """Load tokenizer state from a JSON file."""
+    with open(path, "r", encoding="utf-8") as f:
+        state = json.load(f)
+    return load_tokenizer(state)

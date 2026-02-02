@@ -65,6 +65,7 @@ VAN_MLP_DIM="${VAN_MLP_DIM:-1536}"
 # Tokenizer
 TOKENIZER="${TOKENIZER:-bpe}"
 BPE_VOCAB_SIZE="${BPE_VOCAB_SIZE:-8192}"
+TOKENIZER_PATH="${TOKENIZER_PATH:-data/tokenizer_${TOKENIZER}_${BPE_VOCAB_SIZE}.json}"
 
 # Visualization (3D PCA) input text for wikitext-like token labels
 VIS_TEXT="${VIS_TEXT:-$'== WikiText-style snippet ==\nThis is a small snippet to visualize coordinate space.\nThe quick brown fox jumps over the lazy dog.\n'}"
@@ -87,6 +88,7 @@ if [[ "${TENSORBOARD:-0}" == "1" ]]; then
 fi
 
 COMMON_ARGS=(--dataset wikitext103 --data-path "$DATA_PATH" --tokenizer "$TOKENIZER" --bpe-vocab-size "$BPE_VOCAB_SIZE"
+  --tokenizer-path "$TOKENIZER_PATH"
   --block-size "$BLOCK_SIZE" --batch-size "$BATCH_SIZE" --gradient-accumulation-steps "$ACCUM_STEPS"
   --learning-rate "$LR" --grad-clip "$GRAD_CLIP" --dropout "$DROPOUT"
   --eval-interval "$EVAL_INTERVAL" --seed "$SEED")
