@@ -49,6 +49,7 @@ USE_COSINE="${USE_COSINE:-1}"
 WARMUP_STEPS="${WARMUP_STEPS:-2000}"
 USE_AMP="${USE_AMP:-1}"
 USE_RSQRT="${USE_RSQRT:-1}"
+REPULSION_INTERVAL="${REPULSION_INTERVAL:-1}"  # NGT only (1 = every step)
 
 # Model (NGT ~25.6M, Vanilla params-match ~25.5M)
 NGT_HIDDEN_DIM="${NGT_HIDDEN_DIM:-512}"
@@ -99,6 +100,7 @@ if [[ "$USE_AMP" == "1" ]]; then COMMON_ARGS+=(--use-amp); fi
 # NGT-only flags (train_shakespeare.py only)
 NGT_ONLY_ARGS=()
 if [[ "$USE_RSQRT" == "1" ]]; then NGT_ONLY_ARGS+=(--use-rsqrt); fi
+NGT_ONLY_ARGS+=(--repulsion-interval "$REPULSION_INTERVAL")
 
 run() {
   local name="$1"; shift
@@ -208,8 +210,12 @@ screening_budget10() {
     "${ngt_base} --no-repulsion --use-soft-cutoff --checkpoint-path ${CKPT_DIR}/ngt_combo_no_repulsion_soft.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_combo_no_repulsion_soft" || failed=1
   run "${RUN_NAME_PREFIX}_screen_ngt_combo_mass_in_value_soft" \
     "${ngt_base} --mass-in-value --use-soft-cutoff --checkpoint-path ${CKPT_DIR}/ngt_combo_mass_in_value_soft.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_combo_mass_in_value_soft" || failed=1
-  run "${RUN_NAME_PREFIX}_screen_ngt_repulsion_interval_4" \
-    "${ngt_base} --repulsion-interval 4 --checkpoint-path ${CKPT_DIR}/ngt_repulsion_interval_4.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_repulsion_interval_4" || failed=1
+  local extra_rep_interval="4"
+  if [[ "$REPULSION_INTERVAL" == "4" ]]; then
+    extra_rep_interval="8"
+  fi
+  run "${RUN_NAME_PREFIX}_screen_ngt_repulsion_interval_${extra_rep_interval}" \
+    "${ngt_base} --repulsion-interval ${extra_rep_interval} --checkpoint-path ${CKPT_DIR}/ngt_repulsion_interval_${extra_rep_interval}.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_repulsion_interval_${extra_rep_interval}" || failed=1
 
   for ck in "${CKPT_DIR}"/ngt_*.pt_best.pt; do
     [[ -f "$ck" ]] || continue
@@ -286,6 +292,7 @@ final_run() {
     ngt_combo_no_repulsion_soft) extra_flags+=(--no-repulsion --use-soft-cutoff) ;;
     ngt_combo_mass_in_value_soft) extra_flags+=(--mass-in-value --use-soft-cutoff) ;;
     ngt_repulsion_interval_4) extra_flags+=(--repulsion-interval 4) ;;
+    ngt_repulsion_interval_8) extra_flags+=(--repulsion-interval 8) ;;
     ngt_default) : ;;
     *) echo "[FINAL] Unknown best checkpoint name pattern: ${best_name}"; exit 1 ;;
   esac
