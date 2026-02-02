@@ -17,7 +17,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-MODE="${1:-all}" # screening|final|all
+MODE="${1:-all}" # screening|final|all|budget10
 
 RUN_GROUP="${RUN_GROUP:-w3_25m}"
 DATA_PATH="${DATA_PATH:-data}"
@@ -154,11 +154,11 @@ screening() {
     "${ngt_base} --use-soft-cutoff --checkpoint-path ${CKPT_DIR}/ngt_soft_cutoff.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_soft_cutoff" || failed=1
 
   # Visualize each NGT best checkpoint to interactive HTML
-  viz_ngt_checkpoint "${CKPT_DIR}/ngt_default.pt_best.pt" "${RESULTS_DIR}/coords_ngt_default.html"
-  viz_ngt_checkpoint "${CKPT_DIR}/ngt_no_repulsion.pt_best.pt" "${RESULTS_DIR}/coords_ngt_no_repulsion.html"
-  viz_ngt_checkpoint "${CKPT_DIR}/ngt_no_radius.pt_best.pt" "${RESULTS_DIR}/coords_ngt_no_radius.html"
-  viz_ngt_checkpoint "${CKPT_DIR}/ngt_mass_in_value.pt_best.pt" "${RESULTS_DIR}/coords_ngt_mass_in_value.html"
-  viz_ngt_checkpoint "${CKPT_DIR}/ngt_soft_cutoff.pt_best.pt" "${RESULTS_DIR}/coords_ngt_soft_cutoff.html"
+  for ck in "${CKPT_DIR}"/ngt_*.pt_best.pt; do
+    [[ -f "$ck" ]] || continue
+    base="$(basename "$ck" .pt_best.pt)"
+    viz_ngt_checkpoint "$ck" "${RESULTS_DIR}/coords_${base}.html"
+  done
 
   # Summary + report (screening stage)
   python compare_runs.py "${CKPT_DIR}"/*_best.pt --csv "${RESULTS_DIR}/results.csv" 2>/dev/null | tee "${LOG_DIR}/compare_runs.log" || true
@@ -172,6 +172,62 @@ screening() {
   echo ""
   echo "========================================"
   echo "[DONE] screening"
+  echo "Checkpoints: ${CKPT_DIR}"
+  echo "Results:     ${RESULTS_DIR}"
+  echo "Logs:        ${LOG_DIR}"
+  echo "========================================"
+}
+
+screening_budget10() {
+  # Adds 3 extra NGT runs (~$2.4 at 12k steps on $0.20/h, based on ~1.2s/step).
+  local failed=0
+  local screen_common_base=("${COMMON_ARGS[@]}" --max-steps "$MAX_STEPS_SCREEN" --eval-iters "$EVAL_ITERS_SCREEN")
+  local screen_ngt_common=("${screen_common_base[@]}" "${NGT_ONLY_ARGS[@]}" --vis-interval "$VIS_INTERVAL_SCREEN")
+
+  # Vanilla params-match baseline (run once)
+  local van_ckpt="${CKPT_DIR}/vanilla_25m.pt"
+  run "${RUN_NAME_PREFIX}_screen_vanilla_25m" \
+    "python train_shakespeare_vanilla.py ${screen_common_base[*]} --hidden-dim ${VAN_HIDDEN_DIM} --num-layers ${VAN_LAYERS} --num-heads ${VAN_HEADS} --mlp-dim ${VAN_MLP_DIM} --checkpoint-path ${van_ckpt} --run-name ${RUN_NAME_PREFIX}/screen_vanilla_25m" || failed=1
+
+  local ngt_base="python train_shakespeare.py ${screen_ngt_common[*]} --hidden-dim ${NGT_HIDDEN_DIM} --coord-dim ${NGT_COORD_DIM} --num-layers ${NGT_LAYERS} --num-heads ${NGT_HEADS} --mlp-dim ${NGT_MLP_DIM}"
+
+  # Core 5 ablations
+  run "${RUN_NAME_PREFIX}_screen_ngt_default" \
+    "${ngt_base} --checkpoint-path ${CKPT_DIR}/ngt_default.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_default" || failed=1
+  run "${RUN_NAME_PREFIX}_screen_ngt_no_repulsion" \
+    "${ngt_base} --no-repulsion --checkpoint-path ${CKPT_DIR}/ngt_no_repulsion.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_no_repulsion" || failed=1
+  run "${RUN_NAME_PREFIX}_screen_ngt_no_radius" \
+    "${ngt_base} --no-radius-cutoff --checkpoint-path ${CKPT_DIR}/ngt_no_radius.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_no_radius" || failed=1
+  run "${RUN_NAME_PREFIX}_screen_ngt_mass_in_value" \
+    "${ngt_base} --mass-in-value --checkpoint-path ${CKPT_DIR}/ngt_mass_in_value.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_mass_in_value" || failed=1
+  run "${RUN_NAME_PREFIX}_screen_ngt_soft_cutoff" \
+    "${ngt_base} --use-soft-cutoff --checkpoint-path ${CKPT_DIR}/ngt_soft_cutoff.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_soft_cutoff" || failed=1
+
+  # Extra 3 runs (budget10 set)
+  run "${RUN_NAME_PREFIX}_screen_ngt_combo_no_repulsion_soft" \
+    "${ngt_base} --no-repulsion --use-soft-cutoff --checkpoint-path ${CKPT_DIR}/ngt_combo_no_repulsion_soft.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_combo_no_repulsion_soft" || failed=1
+  run "${RUN_NAME_PREFIX}_screen_ngt_combo_mass_in_value_soft" \
+    "${ngt_base} --mass-in-value --use-soft-cutoff --checkpoint-path ${CKPT_DIR}/ngt_combo_mass_in_value_soft.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_combo_mass_in_value_soft" || failed=1
+  run "${RUN_NAME_PREFIX}_screen_ngt_repulsion_interval_4" \
+    "${ngt_base} --repulsion-interval 4 --checkpoint-path ${CKPT_DIR}/ngt_repulsion_interval_4.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_repulsion_interval_4" || failed=1
+
+  for ck in "${CKPT_DIR}"/ngt_*.pt_best.pt; do
+    [[ -f "$ck" ]] || continue
+    base="$(basename "$ck" .pt_best.pt)"
+    viz_ngt_checkpoint "$ck" "${RESULTS_DIR}/coords_${base}.html"
+  done
+
+  python compare_runs.py "${CKPT_DIR}"/*_best.pt --csv "${RESULTS_DIR}/results.csv" 2>/dev/null | tee "${LOG_DIR}/compare_runs.log" || true
+  python generate_report.py "${CKPT_DIR}"/*_best.pt --output "${RESULTS_DIR}/report.md" 2>/dev/null | tee "${LOG_DIR}/report.log" || true
+
+  if [[ "$failed" -ne 0 ]]; then
+    echo "[DONE] screening_budget10 (with failures). See logs in: ${LOG_DIR}"
+    return 1
+  fi
+
+  echo ""
+  echo "========================================"
+  echo "[DONE] screening_budget10"
   echo "Checkpoints: ${CKPT_DIR}"
   echo "Results:     ${RESULTS_DIR}"
   echo "Logs:        ${LOG_DIR}"
@@ -221,13 +277,15 @@ final_run() {
   local out_ckpt="${CKPT_DIR}/final_${best_name}.pt"
 
   # Re-run with the same ablation flags implied by the best checkpoint name.
-  # (Keeps this script single-file; no stateful parsing beyond the name.)
   local extra_flags=()
   case "$best_name" in
     ngt_no_repulsion) extra_flags+=(--no-repulsion) ;;
     ngt_no_radius) extra_flags+=(--no-radius-cutoff) ;;
     ngt_mass_in_value) extra_flags+=(--mass-in-value) ;;
     ngt_soft_cutoff) extra_flags+=(--use-soft-cutoff) ;;
+    ngt_combo_no_repulsion_soft) extra_flags+=(--no-repulsion --use-soft-cutoff) ;;
+    ngt_combo_mass_in_value_soft) extra_flags+=(--mass-in-value --use-soft-cutoff) ;;
+    ngt_repulsion_interval_4) extra_flags+=(--repulsion-interval 4) ;;
     ngt_default) : ;;
     *) echo "[FINAL] Unknown best checkpoint name pattern: ${best_name}"; exit 1 ;;
   esac
@@ -250,10 +308,11 @@ final_run() {
 
 case "$MODE" in
   screening) screening ;;
+  budget10) screening_budget10; final_run ;;
   final) final_run ;;
   all) screening; final_run ;;
   *)
-    echo "Unknown mode: $MODE (expected: screening|final|all)"
+    echo "Unknown mode: $MODE (expected: screening|final|all|budget10)"
     exit 2
     ;;
 esac
