@@ -126,6 +126,26 @@ class BPETokenizer(BaseTokenizer):
         print(f"BPE tokenizer trained: vocab_size={tok.get_vocab_size()}")
         return cls(tok)
 
+    @classmethod
+    def train_from_iterator(cls, iterator, vocab_size: int = 4000) -> "BPETokenizer":
+        """Train a BPE tokenizer from a text iterator (streaming-friendly)."""
+        from tokenizers import Tokenizer
+        from tokenizers.models import BPE
+        from tokenizers.trainers import BpeTrainer
+        from tokenizers.pre_tokenizers import ByteLevel
+
+        tok = Tokenizer(BPE(unk_token="<unk>"))
+        tok.pre_tokenizer = ByteLevel(add_prefix_space=False)
+
+        trainer = BpeTrainer(
+            vocab_size=vocab_size,
+            special_tokens=["<unk>"],
+            show_progress=True,
+        )
+        tok.train_from_iterator(iterator, trainer=trainer)
+        print(f"BPE tokenizer trained: vocab_size={tok.get_vocab_size()}")
+        return cls(tok)
+
 
 # ---------------------------------------------------------------------------
 # Tiktoken tokenizer (GPT-2 / cl100k_base wrapper)
@@ -207,3 +227,11 @@ def load_tokenizer_from_path(path: str) -> BaseTokenizer:
     with open(path, "r", encoding="utf-8") as f:
         state = json.load(f)
     return load_tokenizer(state)
+
+
+def train_bpe_tokenizer_from_iterator(iterator, vocab_size: int, tokenizer_path: str | None = None) -> BaseTokenizer:
+    """Train a BPE tokenizer from an iterator and optionally save it."""
+    tok = BPETokenizer.train_from_iterator(iterator, vocab_size=vocab_size)
+    if tokenizer_path:
+        save_tokenizer_to_path(tok, tokenizer_path)
+    return tok

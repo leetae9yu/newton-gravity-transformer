@@ -14,8 +14,13 @@ from common import build_causal_mask
 from ngt_model import NewtonGravityTransformer
 from data_utils import load_dataset
 from prepare_data import ensure_data
-from tokenizer_utils import build_tokenizer, load_tokenizer
-from tokenizer_utils import load_tokenizer_from_path, save_tokenizer_to_path
+from tokenizer_utils import (
+    build_tokenizer,
+    load_tokenizer,
+    load_tokenizer_from_path,
+    save_tokenizer_to_path,
+    train_bpe_tokenizer_from_iterator,
+)
 
 
 def read_text(path):
@@ -43,7 +48,14 @@ def get_batch(data, block_size, batch_size, device):
     ix = torch.randint(0, max_start, (batch_size,))
     x = torch.stack([data[i : i + block_size] for i in ix])
     y = torch.stack([data[i + 1 : i + block_size + 1] for i in ix])
-    return x.to(device), y.to(device)
+    x = x.to(device)
+    y = y.to(device)
+    # wikitext103 caches may be stored as int32 for memory efficiency; Embedding expects int64.
+    if x.dtype != torch.long:
+        x = x.long()
+    if y.dtype != torch.long:
+        y = y.long()
+    return x, y
 
 
 def compute_repulsion_loss(z, mass=None, alpha=2.0, min_dist=1e-3, max_samples=64):
@@ -348,9 +360,9 @@ def main():
                 from datasets import load_dataset as hf_load_dataset
                 print("Loading WikiText-103 text for BPE training...")
                 ds = hf_load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
-                bpe_text = "\n".join(line for line in ds["text"] if line.strip())
-                tokenizer = build_tokenizer(bpe_text, "bpe", args.bpe_vocab_size)
-                del bpe_text, ds
+                iterator = (line for line in ds["text"] if line.strip())
+                tokenizer = train_bpe_tokenizer_from_iterator(iterator, args.bpe_vocab_size, args.tokenizer_path)
+                del ds
             else:
                 tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
             if args.tokenizer == "char":
@@ -359,7 +371,7 @@ def main():
             text = read_text(data_path)
             tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
 
-        if args.tokenizer_path:
+        if args.tokenizer_path and args.tokenizer != "bpe":
             save_tokenizer_to_path(tokenizer, args.tokenizer_path)
             print(f"Saved tokenizer to {args.tokenizer_path}")
 

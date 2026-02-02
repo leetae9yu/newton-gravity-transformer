@@ -9,8 +9,10 @@ Supports:
 import json
 import os
 import hashlib
+from array import array
 
 import torch
+import numpy as np
 
 
 def _tokenizer_fingerprint(tokenizer) -> str:
@@ -77,6 +79,28 @@ def _load_wikitext103(tokenizer, data_path):
                 hf_dataset = hf_load_dataset("wikitext", "wikitext-103-raw-v1")
 
             split_data = hf_dataset[split_name]
+
+            # Stream-friendly encoding: avoid building one massive string or a huge Python int list.
+            newline_ids = tokenizer.encode("\n")
+            tok_buf = array("i")
+            first = True
+            total_chars = 0
+            for line in split_data["text"]:
+                if not line or not line.strip():
+                    continue
+                if not first and newline_ids:
+                    tok_buf.extend(newline_ids)
+                first = False
+                total_chars += len(line) + 1
+                tok_buf.extend(tokenizer.encode(line))
+
+            print(f"Encoding {split_name} split (~{total_chars:,} chars)...")
+            np_tokens = np.frombuffer(tok_buf, dtype=np.int32)
+            tensor = torch.from_numpy(np_tokens)
+            torch.save(tensor, cache_file)
+            print(f"Cached {split_name} split: {tensor.numel():,} tokens -> {cache_file}")
+            splits[out_key] = tensor
+            continue
             # Concatenate all text, filtering empty lines
             lines = [line for line in split_data["text"] if line.strip()]
             full_text = "\n".join(lines)

@@ -17,6 +17,7 @@ from tokenizer_utils import (
     load_tokenizer,
     load_tokenizer_from_path,
     save_tokenizer_to_path,
+    train_bpe_tokenizer_from_iterator,
 )
 from train_shakespeare import (
     read_text,
@@ -139,9 +140,9 @@ def main():
                 from datasets import load_dataset as hf_load_dataset
                 print("Loading WikiText-103 text for BPE training...")
                 ds = hf_load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
-                bpe_text = "\n".join(line for line in ds["text"] if line.strip())
-                tokenizer = build_tokenizer(bpe_text, "bpe", args.bpe_vocab_size)
-                del bpe_text, ds
+                iterator = (line for line in ds["text"] if line.strip())
+                tokenizer = train_bpe_tokenizer_from_iterator(iterator, args.bpe_vocab_size, args.tokenizer_path)
+                del ds
             else:
                 tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
             if args.tokenizer == "char":
@@ -150,7 +151,7 @@ def main():
             text = read_text(data_path)
             tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
 
-        if args.tokenizer_path:
+        if args.tokenizer_path and args.tokenizer != "bpe":
             save_tokenizer_to_path(tokenizer, args.tokenizer_path)
             print(f"Saved tokenizer to {args.tokenizer_path}")
 
