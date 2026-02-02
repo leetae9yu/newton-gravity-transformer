@@ -93,7 +93,10 @@ COMMON_ARGS=(--dataset wikitext103 --data-path "$DATA_PATH" --tokenizer "$TOKENI
 
 if [[ "$USE_COSINE" == "1" ]]; then COMMON_ARGS+=(--use-cosine-schedule --warmup-steps "$WARMUP_STEPS"); fi
 if [[ "$USE_AMP" == "1" ]]; then COMMON_ARGS+=(--use-amp); fi
-if [[ "$USE_RSQRT" == "1" ]]; then COMMON_ARGS+=(--use-rsqrt); fi
+
+# NGT-only flags (train_shakespeare.py only)
+NGT_ONLY_ARGS=()
+if [[ "$USE_RSQRT" == "1" ]]; then NGT_ONLY_ARGS+=(--use-rsqrt); fi
 
 run() {
   local name="$1"; shift
@@ -125,26 +128,28 @@ viz_ngt_checkpoint() {
 }
 
 screening() {
-  local screen_common=("${COMMON_ARGS[@]}" --max-steps "$MAX_STEPS_SCREEN" --eval-iters "$EVAL_ITERS_SCREEN" --vis-interval "$VIS_INTERVAL_SCREEN")
+  local failed=0
+  local screen_common_base=("${COMMON_ARGS[@]}" --max-steps "$MAX_STEPS_SCREEN" --eval-iters "$EVAL_ITERS_SCREEN")
+  local screen_ngt_common=("${screen_common_base[@]}" "${NGT_ONLY_ARGS[@]}" --vis-interval "$VIS_INTERVAL_SCREEN")
 
   # Vanilla params-match baseline (run once)
   local van_ckpt="${CKPT_DIR}/vanilla_25m.pt"
   run "${RUN_NAME_PREFIX}_screen_vanilla_25m" \
-    "python train_shakespeare_vanilla.py ${screen_common[*]} --hidden-dim ${VAN_HIDDEN_DIM} --num-layers ${VAN_LAYERS} --num-heads ${VAN_HEADS} --mlp-dim ${VAN_MLP_DIM} --checkpoint-path ${van_ckpt} --run-name ${RUN_NAME_PREFIX}/screen_vanilla_25m"
+    "python train_shakespeare_vanilla.py ${screen_common_base[*]} --hidden-dim ${VAN_HIDDEN_DIM} --num-layers ${VAN_LAYERS} --num-heads ${VAN_HEADS} --mlp-dim ${VAN_MLP_DIM} --checkpoint-path ${van_ckpt} --run-name ${RUN_NAME_PREFIX}/screen_vanilla_25m" || failed=1
 
   # NGT base
-  local ngt_base="python train_shakespeare.py ${screen_common[*]} --hidden-dim ${NGT_HIDDEN_DIM} --coord-dim ${NGT_COORD_DIM} --num-layers ${NGT_LAYERS} --num-heads ${NGT_HEADS} --mlp-dim ${NGT_MLP_DIM}"
+  local ngt_base="python train_shakespeare.py ${screen_ngt_common[*]} --hidden-dim ${NGT_HIDDEN_DIM} --coord-dim ${NGT_COORD_DIM} --num-layers ${NGT_LAYERS} --num-heads ${NGT_HEADS} --mlp-dim ${NGT_MLP_DIM}"
 
   run "${RUN_NAME_PREFIX}_screen_ngt_default" \
-    "${ngt_base} --checkpoint-path ${CKPT_DIR}/ngt_default.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_default"
+    "${ngt_base} --checkpoint-path ${CKPT_DIR}/ngt_default.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_default" || failed=1
   run "${RUN_NAME_PREFIX}_screen_ngt_no_repulsion" \
-    "${ngt_base} --no-repulsion --checkpoint-path ${CKPT_DIR}/ngt_no_repulsion.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_no_repulsion"
+    "${ngt_base} --no-repulsion --checkpoint-path ${CKPT_DIR}/ngt_no_repulsion.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_no_repulsion" || failed=1
   run "${RUN_NAME_PREFIX}_screen_ngt_no_radius" \
-    "${ngt_base} --no-radius-cutoff --checkpoint-path ${CKPT_DIR}/ngt_no_radius.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_no_radius"
+    "${ngt_base} --no-radius-cutoff --checkpoint-path ${CKPT_DIR}/ngt_no_radius.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_no_radius" || failed=1
   run "${RUN_NAME_PREFIX}_screen_ngt_mass_in_value" \
-    "${ngt_base} --mass-in-value --checkpoint-path ${CKPT_DIR}/ngt_mass_in_value.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_mass_in_value"
+    "${ngt_base} --mass-in-value --checkpoint-path ${CKPT_DIR}/ngt_mass_in_value.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_mass_in_value" || failed=1
   run "${RUN_NAME_PREFIX}_screen_ngt_soft_cutoff" \
-    "${ngt_base} --use-soft-cutoff --checkpoint-path ${CKPT_DIR}/ngt_soft_cutoff.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_soft_cutoff"
+    "${ngt_base} --use-soft-cutoff --checkpoint-path ${CKPT_DIR}/ngt_soft_cutoff.pt --run-name ${RUN_NAME_PREFIX}/screen_ngt_soft_cutoff" || failed=1
 
   # Visualize each NGT best checkpoint to interactive HTML
   viz_ngt_checkpoint "${CKPT_DIR}/ngt_default.pt_best.pt" "${RESULTS_DIR}/coords_ngt_default.html"
@@ -156,6 +161,11 @@ screening() {
   # Summary + report (screening stage)
   python compare_runs.py "${CKPT_DIR}"/*_best.pt --csv "${RESULTS_DIR}/results.csv" 2>/dev/null | tee "${LOG_DIR}/compare_runs.log" || true
   python generate_report.py "${CKPT_DIR}"/*_best.pt --output "${RESULTS_DIR}/report.md" 2>/dev/null | tee "${LOG_DIR}/report.log" || true
+
+  if [[ "$failed" -ne 0 ]]; then
+    echo "[DONE] screening (with failures). See logs in: ${LOG_DIR}"
+    return 1
+  fi
 
   echo ""
   echo "========================================"
@@ -205,7 +215,7 @@ final_run() {
   best_name="$(basename "$best_ckpt" .pt_best.pt)"
   echo "[FINAL] picked best: ${best_name} (${best_ckpt})"
 
-  local final_common=("${COMMON_ARGS[@]}" --max-steps "$MAX_STEPS_FINAL" --eval-iters "$EVAL_ITERS_FINAL" --vis-interval "$VIS_INTERVAL_FINAL")
+  local final_common=("${COMMON_ARGS[@]}" --max-steps "$MAX_STEPS_FINAL" --eval-iters "$EVAL_ITERS_FINAL" "${NGT_ONLY_ARGS[@]}" --vis-interval "$VIS_INTERVAL_FINAL")
   local out_ckpt="${CKPT_DIR}/final_${best_name}.pt"
 
   # Re-run with the same ablation flags implied by the best checkpoint name.
@@ -245,4 +255,3 @@ case "$MODE" in
     exit 2
     ;;
 esac
-
