@@ -71,6 +71,8 @@ def parse_args():
                         help="Custom TensorBoard run directory name (default: auto-generated)")
     parser.add_argument("--seed", type=int, default=None,
                         help="Random seed for reproducibility")
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=1,
+                        help="Number of gradient accumulation steps (default: 1)")
     args = parser.parse_args()
     if args.dataset == "wikitext103":
         _apply_preset(args, WIKITEXT103_VANILLA_CONFIG, VANILLA_DEFAULTS)
@@ -114,11 +116,21 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    accum_steps = args.gradient_accumulation_steps
+
     # --- Tokenizer setup ---
     if args.dataset == "wikitext103":
-        tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
-        if args.tokenizer != "tiktoken":
-            print(f"Warning: wikitext103 is best used with --tokenizer tiktoken (got {args.tokenizer})")
+        if args.tokenizer == "bpe":
+            from datasets import load_dataset as hf_load_dataset
+            print("Loading WikiText-103 text for BPE training...")
+            ds = hf_load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
+            bpe_text = "\n".join(line for line in ds["text"] if line.strip())
+            tokenizer = build_tokenizer(bpe_text, "bpe", args.bpe_vocab_size)
+            del bpe_text, ds
+        else:
+            tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
+        if args.tokenizer == "char":
+            print(f"Warning: wikitext103 is best used with --tokenizer bpe or tiktoken (got {args.tokenizer})")
     else:
         text = read_text(data_path)
         tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
@@ -213,23 +225,32 @@ def main():
         os.makedirs(checkpoint_dir, exist_ok=True)
 
     t0 = time.time()
-    for step in range(start_step, max_steps):
+    optimizer.zero_grad(set_to_none=True)
+
+    for micro_step in range(start_step * accum_steps, max_steps * accum_steps):
         x, y = get_batch(train_data, block_size, batch_size, device)
+        effective_step = (micro_step + 1) // accum_steps  # 1-based
+        is_accum_boundary = (micro_step + 1) % accum_steps == 0
 
         with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             logits = model(x, mask=mask)
             loss = criterion(logits.view(-1, vocab_size), y.view(-1))
+            loss = loss / accum_steps
 
-        optimizer.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
+
+        if not is_accum_boundary:
+            continue
+
         scaler.unscale_(optimizer)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         scaler.step(optimizer)
         scaler.update()
+        optimizer.zero_grad(set_to_none=True)
         if scheduler is not None:
             scheduler.step()
 
-        if (step + 1) % eval_interval == 0:
+        if effective_step % eval_interval == 0:
             train_loss = estimate_loss(
                 model, train_data, block_size, batch_size, device, mask, criterion, eval_iters
             )
@@ -238,17 +259,17 @@ def main():
             )
             elapsed = time.time() - t0
             print(
-                f"step {step + 1}/{max_steps} "
+                f"step {effective_step}/{max_steps} "
                 f"train_loss={train_loss:.4f} val_loss={val_loss:.4f} "
                 f"elapsed={elapsed:.1f}s"
             )
-            writer.add_scalar("loss/train", train_loss, step + 1)
-            writer.add_scalar("loss/val", val_loss, step + 1)
+            writer.add_scalar("loss/train", train_loss, effective_step)
+            writer.add_scalar("loss/val", val_loss, effective_step)
 
             # Learning rate and gradient norm
             current_lr = optimizer.param_groups[0]["lr"]
-            writer.add_scalar("lr", current_lr, step + 1)
-            writer.add_scalar("grad_norm", grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm, step + 1)
+            writer.add_scalar("lr", current_lr, effective_step)
+            writer.add_scalar("grad_norm", grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm, effective_step)
 
             if val_loss < best_val:
                 best_val = val_loss
@@ -256,7 +277,7 @@ def main():
                     {
                         "model_state": model.state_dict(),
                         "optimizer_state": optimizer.state_dict(),
-                        "iter": step + 1,
+                        "iter": effective_step,
                         "best_val": best_val,
                         "config": {
                             "hidden_dim": hidden_dim,
@@ -268,6 +289,8 @@ def main():
                             "vocab_size": vocab_size,
                             "dataset": args.dataset,
                             "seed": args.seed,
+                            "model_type": "vanilla",
+                            "gradient_accumulation_steps": accum_steps,
                         },
                         "vocab": tokenizer.save_state(),
                     },
@@ -290,6 +313,8 @@ def main():
                 "vocab_size": vocab_size,
                 "dataset": args.dataset,
                 "seed": args.seed,
+                "model_type": "vanilla",
+                "gradient_accumulation_steps": accum_steps,
             },
             "vocab": tokenizer.save_state(),
         },
@@ -314,6 +339,7 @@ def main():
         "warmup_steps": args.warmup_steps,
         "tokenizer": args.tokenizer,
         "seed": args.seed if args.seed is not None else -1,
+        "gradient_accumulation_steps": accum_steps,
     }
     metric_dict = {
         "best_val_loss": best_val,

@@ -275,6 +275,8 @@ def parse_args():
                         help="Custom TensorBoard run directory name (default: auto-generated)")
     parser.add_argument("--seed", type=int, default=None,
                         help="Random seed for reproducibility")
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=1,
+                        help="Number of gradient accumulation steps (default: 1)")
     args = parser.parse_args()
     if args.dataset == "wikitext103":
         _apply_preset(args, WIKITEXT103_CONFIG)
@@ -327,11 +329,21 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    accum_steps = args.gradient_accumulation_steps
+
     # --- Tokenizer setup (may be overridden by checkpoint on resume) ---
     if args.dataset == "wikitext103":
-        tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
-        if args.tokenizer != "tiktoken":
-            print(f"Warning: wikitext103 is best used with --tokenizer tiktoken (got {args.tokenizer})")
+        if args.tokenizer == "bpe":
+            from datasets import load_dataset as hf_load_dataset
+            print("Loading WikiText-103 text for BPE training...")
+            ds = hf_load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
+            bpe_text = "\n".join(line for line in ds["text"] if line.strip())
+            tokenizer = build_tokenizer(bpe_text, "bpe", args.bpe_vocab_size)
+            del bpe_text, ds
+        else:
+            tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
+        if args.tokenizer == "char":
+            print(f"Warning: wikitext103 is best used with --tokenizer bpe or tiktoken (got {args.tokenizer})")
     else:
         text = read_text(data_path)
         tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
@@ -461,39 +473,49 @@ def main():
         os.makedirs(gravity_dir, exist_ok=True)
 
     t0 = time.time()
-    for step in range(start_step, max_steps):
+    optimizer.zero_grad(set_to_none=True)
+
+    for micro_step in range(start_step * accum_steps, max_steps * accum_steps):
         x, y = get_batch(train_data, block_size, batch_size, device)
+        effective_step = (micro_step + 1) // accum_steps  # 1-based
+        is_accum_boundary = (micro_step + 1) % accum_steps == 0
 
         with torch.amp.autocast(device_type=device.type, enabled=use_amp):
-            compute_rep = use_repulsion and (step % repulsion_interval == 0)
+            compute_rep = use_repulsion and (effective_step % repulsion_interval == 0) if is_accum_boundary else False
             if use_repulsion:
                 logits, z, m = model(x, mask=mask, return_last_coords=True)
                 task_loss = criterion(logits.view(-1, vocab_size), y.view(-1))
                 if compute_rep:
                     rep_loss = compute_repulsion_loss(z, mass=m)
                     rep_loss_item = float(rep_loss.detach())
-                    loss = task_loss + lambda_repulsion * rep_loss
+                    loss = (task_loss + lambda_repulsion * rep_loss) / accum_steps
                 else:
                     rep_loss_item = 0.0
-                    loss = task_loss
+                    loss = task_loss / accum_steps
             else:
                 logits = model(x, mask=mask)
                 if isinstance(logits, tuple):
                     logits = logits[0]
                 task_loss = criterion(logits.view(-1, vocab_size), y.view(-1))
                 rep_loss_item = 0.0
-                loss = task_loss
+                loss = task_loss / accum_steps
 
-        optimizer.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
+
+        if not is_accum_boundary:
+            continue
+
         scaler.unscale_(optimizer)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         scaler.step(optimizer)
         scaler.update()
+        optimizer.zero_grad(set_to_none=True)
         if scheduler is not None:
             scheduler.step()
 
-        if vis_interval and vis_interval > 0 and (step + 1) % vis_interval == 0 and use_repulsion:
+        step = effective_step - 1  # 0-based for compatibility with eval checks
+
+        if vis_interval and vis_interval > 0 and effective_step % vis_interval == 0 and use_repulsion:
             flat_z = z.detach().reshape(-1, z.size(-1))
             tokens_flat = x.detach().reshape(-1)
 
@@ -509,7 +531,7 @@ def main():
             writer.add_embedding(
                 mat=flat_z,
                 metadata=tokens_text,
-                global_step=step + 1,
+                global_step=effective_step,
             )
             if probe_word_ids and use_char_tokenizer:
                 record_probe_snapshot(
@@ -518,11 +540,11 @@ def main():
                     m.cpu(),
                     probe_word_ids,
                     itos,
-                    step + 1,
+                    effective_step,
                     gravity_evolution_path,
                 )
 
-        if (step + 1) % eval_interval == 0:
+        if effective_step % eval_interval == 0:
             train_loss = estimate_loss(
                 model,
                 train_data,
@@ -553,19 +575,19 @@ def main():
                 eval_rep_loss = 0.0
             elapsed = time.time() - t0
             print(
-                f"step {step + 1}/{max_steps} "
+                f"step {effective_step}/{max_steps} "
                 f"train_loss={train_loss:.4f} val_loss={val_loss:.4f} "
                 f"rep_loss={eval_rep_loss:.4f} "
                 f"elapsed={elapsed:.1f}s"
             )
-            writer.add_scalar("loss/train", train_loss, step + 1)
-            writer.add_scalar("loss/val", val_loss, step + 1)
-            writer.add_scalar("loss/repulsion", eval_rep_loss, step + 1)
+            writer.add_scalar("loss/train", train_loss, effective_step)
+            writer.add_scalar("loss/val", val_loss, effective_step)
+            writer.add_scalar("loss/repulsion", eval_rep_loss, effective_step)
 
             # Learning rate and gradient norm
             current_lr = optimizer.param_groups[0]["lr"]
-            writer.add_scalar("lr", current_lr, step + 1)
-            writer.add_scalar("grad_norm", grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm, step + 1)
+            writer.add_scalar("lr", current_lr, effective_step)
+            writer.add_scalar("grad_norm", grad_norm.item() if torch.is_tensor(grad_norm) else grad_norm, effective_step)
 
             # NGT-specific: gamma and radius distributions
             gammas = []
@@ -577,11 +599,11 @@ def main():
                     radii.append(torch.nn.functional.softplus(layer.attn.radius_param).detach())
             if gammas:
                 all_gamma = torch.cat([g.flatten() for g in gammas])
-                writer.add_scalar("ngt/gamma_mean", all_gamma.mean().item(), step + 1)
-                writer.add_scalar("ngt/gamma_std", all_gamma.std().item(), step + 1)
+                writer.add_scalar("ngt/gamma_mean", all_gamma.mean().item(), effective_step)
+                writer.add_scalar("ngt/gamma_std", all_gamma.std().item(), effective_step)
             if radii:
                 all_radius = torch.stack(radii)
-                writer.add_scalar("ngt/radius_mean", all_radius.mean().item(), step + 1)
+                writer.add_scalar("ngt/radius_mean", all_radius.mean().item(), effective_step)
 
             if val_loss < best_val:
                 best_val = val_loss
@@ -589,7 +611,7 @@ def main():
                     {
                         "model_state": model.state_dict(),
                         "optimizer_state": optimizer.state_dict(),
-                        "iter": step + 1,
+                        "iter": effective_step,
                         "best_val": best_val,
                         "config": {
                             "hidden_dim": hidden_dim,
@@ -606,6 +628,8 @@ def main():
                             "mass_in_value": mass_in_value,
                             "use_soft_cutoff": use_soft_cutoff,
                             "seed": args.seed,
+                            "model_type": "ngt",
+                            "gradient_accumulation_steps": accum_steps,
                         },
                         "vocab": tokenizer.save_state(),
                     },
@@ -633,6 +657,8 @@ def main():
                 "mass_in_value": mass_in_value,
                 "use_soft_cutoff": use_soft_cutoff,
                 "seed": args.seed,
+                "model_type": "ngt",
+                "gradient_accumulation_steps": accum_steps,
             },
             "vocab": tokenizer.save_state(),
         },
@@ -663,6 +689,7 @@ def main():
         "warmup_steps": args.warmup_steps,
         "tokenizer": args.tokenizer,
         "seed": args.seed if args.seed is not None else -1,
+        "gradient_accumulation_steps": accum_steps,
     }
     metric_dict = {
         "best_val_loss": best_val,
