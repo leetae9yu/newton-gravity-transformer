@@ -47,6 +47,9 @@ GEMINI.md
 
 # Logs
 *.log
+*.out
+*.pid
+logs/
 runs/
 tensorboard/
 
@@ -66,6 +69,9 @@ checkpoints_ideal/
 # Data (download via prepare_data.py)
 data/
 
+# Generated results (reports/ stays tracked)
+results/
+
 # User Learning Workspace
 learn_ngt/
 
@@ -76,6 +82,10 @@ runpodctl.exe
 *.tgz
 w3_25m_results*/
 w3_25m_results_latest*/
+
+# Experiment artifacts (not source)
+5k-v0.1/
+assets/5k-step-loss.png
 
 # In Progress
 BOTTLENECK_ANALYSIS.md

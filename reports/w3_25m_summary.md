@@ -1,34 +1,38 @@
 # w3_25m Experiment Summary (WikiText-103, ~25M)
 
-Source artifacts:
-- Report: [report.md](./report.md)
-- Raw results: [results.csv](./results.csv)
-- 3D PCA coords (Plotly HTML):
-  - [coords_ngt_default.html](./coords_ngt_default.html)
-  - [coords_ngt_mass_in_value.html](./coords_ngt_mass_in_value.html)
-  - [coords_ngt_no_radius.html](./coords_ngt_no_radius.html)
-  - [coords_ngt_no_repulsion.html](./coords_ngt_no_repulsion.html)
-  - [coords_ngt_repulsion_interval_8.html](./coords_ngt_repulsion_interval_8.html)
+This file summarizes the **w3_25m screening run set** (seed=42, max_steps=15000).
+
+## Source artifacts (not tracked in git)
+
+From the RunPod workspace (or your downloaded archive), expect:
+- `results/w3_25m/report.md`
+- `results/w3_25m/results.csv`
+- `results/w3_25m/coords_*.html` (self-contained Plotly visualizations)
+- `logs/w3_25m/w3_25m_screen_*.log` (training logs with `val_loss` + `elapsed=...`)
 
 ## What ran
 
 - Dataset: `wikitext103`
-- Vocab size: `8192`
+- Tokenizer: BPE, vocab size `8192`
 - Context length (`block_size`): `512`
-- Model config: `hidden_dim=512`, `num_layers=8`, `num_heads=8`, `mlp_dim=1536`
+- Model config: `hidden_dim=512`, `coord_dim=64`, `num_layers=8`, `num_heads=8`, `mlp_dim=2048`, `dropout=0.1`
+- Optim: AdamW, cosine schedule + warmup (see `GUIDE.md` for the exact command used)
+- Batch: `batch_size=16`, `gradient_accumulation_steps=2`
 - Seed: `42`
+- Max steps: `15000`
 
-## Headline results
+## Headline results (@15000)
 
-This is a small screening set (see note in [report.md](./report.md)); use as directional, not definitive.
+Validation loss is cross-entropy; perplexity is `exp(loss)`.
 
-- **Final @15000 (overall best)**: `vanilla` - **val loss `4.5554`** (ppl `95.14`)
-- **Final @15000 (best NGT)**: `ngt_mass_in_value` - **val loss `4.6635`** (ppl `106.01`)
-  - Delta vs vanilla (@15000): `+0.1081` loss (~ `+11.4%` ppl)
+- **Best overall (vanilla)**: `val_loss=4.5554` (ppl `95.14`)
+- **Best NGT variant**: `--mass-in-value` -> `val_loss=4.6635` (ppl `106.01`)
+  - Delta vs vanilla (@15000): `+0.1081` loss (~`+11.4%` ppl)
 
 ## Fixed-step comparison (@15000)
 
-All runs reached `iter=15000` (`*_last.pt`). The table below compares **validation loss at step=15000** from the per-run logs (`logs/w3_25m/w3_25m_screen_*.log`).
+All runs reached `iter=15000` (via `*_last.pt`). Values below are from the per-run log line:
+`step 15000/15000 ... val_loss=...`
 
 | run | val loss @15000 |
 |---|---:|
@@ -42,7 +46,7 @@ All runs reached `iter=15000` (`*_last.pt`). The table below compares **validati
 ## Best vs last (per run)
 
 `best` = lowest validation loss observed during training (`*_best.pt`).  
-`last` = validation loss at the final step (15000) (`*_last.pt`, shown via the `step 15000/15000 ... val_loss=...` log line).
+`last` = validation loss at the final step (15000) (`*_last.pt`).
 
 | run | best val loss | best step | last val loss (@15000) |
 |---|---:|---:|---:|
@@ -68,7 +72,7 @@ Best validation observed during training (may occur before 15000):
 
 ## Throughput (screening)
 
-Approx throughput normalized to the same training horizon (**step=500 -> 15000**) using `elapsed` from `logs/w3_25m/*.log`:
+Approx throughput normalized to the same training horizon (**step=500 -> 15000**) using `elapsed` from `logs/w3_25m/w3_25m_screen_*.log`:
 
 | run | steps/sec | sec/step |
 |---|---:|---:|
@@ -79,16 +83,11 @@ Approx throughput normalized to the same training horizon (**step=500 -> 15000**
 | w3_25m_screen_ngt_mass_in_value.log | 0.852 | 1.17 |
 | w3_25m_screen_ngt_no_radius.log | 0.855 | 1.17 |
 
-Rule of thumb: NGT runs here are ~0.83-0.86 steps/sec vs vanilla ~4.97 steps/sec (~5.8-6.0x slower) under the same batch/accum/block settings.
+Rule of thumb: NGT runs here are ~0.83-0.86 steps/sec vs vanilla ~4.96 steps/sec (~5.8-6.0x slower) under the same batch/accum/block settings.
 
 ## HTML visualizations (coords)
 
-Each file below is a self-contained Plotly HTML (can be opened locally in a browser):
+Each `coords_*.html` is a self-contained Plotly HTML (open locally in a browser).
 
-- `coords_ngt_default.html` -> `ngt_default` checkpoint
-- `coords_ngt_mass_in_value.html` -> `ngt_mass_in_value` checkpoint
-- `coords_ngt_no_repulsion.html` -> `ngt_no_repulsion` checkpoint
-- `coords_ngt_repulsion_interval_8.html` -> `ngt_repulsion_interval_8` checkpoint
-- `coords_ngt_no_radius.html` -> `ngt_no_radius` checkpoint
+Note: Hover labels may include tokenizer-specific whitespace markers (e.g., `Ġ` / `Ċ`, U+0120 / U+010A) indicating a leading space/newline. These are tokenizer artifacts, not literal characters from the raw text.
 
-Note: Hover labels may include tokenizer-specific markers like `Ġ` (common in byte-level BPE) indicating a leading space; it is not a literal character from the input text.

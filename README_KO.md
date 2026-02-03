@@ -1,50 +1,58 @@
-﻿# 뉴턴 중력 트랜스포머 (NGT)
+# 뉴턴 중력 트랜스포머 (NGT)
 
 <a id="top"></a>
 
 **[English](README.md)** | **[한국어](README_KO.md)**
 
-### *"단어는 입자이고, 어텐션은 중력이다"*
+### *"단어는 입자고, 어텐션은 중력이다"*
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-NGT는 dot-product attention 대신, 잠재 좌표 공간에서의 **거리**와 토큰의 **질량(mass)** 을 이용해 “중력 커널”로 어텐션을 구성하는 실험적 트랜스포머 구현입니다.
+NGT(Newton Gravity Transformer)는 토큰을 “입자”처럼 취급하는 실험적 Transformer 변형입니다. 각 토큰은 학습되는 **질량(mass)**과 **좌표(coordinates)**를 가지며, 어텐션은 잠재 공간에서의 거리 기반 **중력 커널(gravity kernel)**로 계산됩니다.
 
-## WikiText-103 진행 상황 (w3_25m)
-
-현재 이 레포는 WikiText-103 실험(BPE-8192, ~25M params)에 초점을 맞추고 있습니다. 최신 스크리닝 요약:
-- `reports/w3_25m_summary.md`
-
-**스크리닝 스냅샷 (seed=42, max_steps=15000):**
-- 전체 최고(15000 step 기준): Vanilla val loss `4.5554` (ppl `95.14`)
-- NGT 최고(15000 step 기준): `--mass-in-value` val loss `4.6635` (ppl `106.01`)
-- 동일 설정에서 속도: Vanilla ~`4.97` steps/s vs NGT ~`0.83–0.86` steps/s (대략 `6x` 느림)
-
-RunPod에서 실행/모니터링/다운로드는 아래를 참고하세요:
-- `GUIDE.md` (명령어 모음)
-- `FUTURE.md` (인수인계/재개 노트)
-
-## 핵심 기능
-
-- 중력 기반 어텐션(gamma: 세기, beta: bias, 헤드별 학습)
-- 토큰별 질량 임베딩(`Softplus`로 양수 보장) + 좌표 임베딩(`z`)
-- 레이어를 따라 좌표가 진화(coordinate evolution)
-- 학습 가능한 반경 컷오프(하드/소프트)로 희소 어텐션
-- 반발(Repulsion) 정규화: 질량 기반 + 거리 클램프(min_dist)로 NaN/Inf 방지
-- 토크나이저: `char`, `bpe`(HF `tokenizers`), `tiktoken`
-- TensorBoard 스칼라 + Projector 임베딩 로깅
-- 체크포인트 안정화: `*_best.pt` + `*_last.pt`, `--resume` 로드 우선순위 지원
-- `chat.py`에서 레거시 체크포인트 호환(누락된 `mass_emb`, 구버전 `coord_proj_next`)
+이 레포는 학습/재개(resume), TensorBoard 로깅, `*_best.pt`/`*_last.pt` 체크포인트, 좌표 시각화(Plotly HTML)까지 end-to-end로 포함합니다.
 
 ---
 
-## 소개
+## 프로젝트 포커스: WikiText-103 (~25M)
 
-안녕하세요! AI에 관심이 많은 학부생 **이태규**입니다.
+현재 포커스는 WikiText-103 + BPE-8192 + ~25M 파라미터 스케일의 스크리닝 실험입니다.
 
-이 프로젝트는 *"의미적 관계가 운동/중력 같은 물리 법칙을 따른다면 어떨까?"* 라는 호기심에서 시작됐고, 그 아이디어를 학습/로깅/시각화/체크포인트 관리까지 포함한 형태로 끝까지 검증해보는 개인 연구형 구현입니다.
+- RunPod 워크플로/명령어: `GUIDE.md`
+- 세션 인수인계/다음 실험 메모: `FUTURE.md`
+- 최신 실험 요약(추적): `reports/w3_25m_summary.md`
+
+### 최신 스크리닝 스냅샷 (w3_25m, seed=42, max_steps=15000)
+
+val loss는 cross-entropy이며, perplexity는 `exp(loss)` 입니다.
+
+| 모델 | 설정 | val loss @15000 | ppl |
+|---|---|---:|---:|
+| vanilla | baseline | 4.5554 | 95.14 |
+| NGT | `--mass-in-value` | 4.6635 | 106.01 |
+| NGT | `--no-repulsion` | 4.7214 | 112.33 |
+| NGT | `--repulsion-interval 8` | 4.7889 | 120.17 |
+| NGT | default | 4.7915 | 120.48 |
+| NGT | `--no-radius-cutoff` | 4.7940 | 120.78 |
+
+같은 설정(B=16, accum=2, block=512)에서의 대략적 처리량:
+- vanilla: ~4.96 steps/s
+- NGT: ~0.83–0.86 steps/s (약 6배 느림)
+
+---
+
+## NGT는 무엇이 다른가? (메커니즘 요약)
+
+일반 Transformer는 Q/K 내적(dot-product)으로 어텐션 점수를 계산합니다.
+
+NGT는 “기하(geometric) 스트림”을 추가합니다:
+- 각 토큰은 hidden state `h`(semantic)와 좌표 `z`(geometric)를 가집니다.
+- 각 토큰은 학습되는 질량 `m`을 가지며 `Softplus`로 양수를 보장합니다.
+- 어텐션 점수는 `z` 공간의 거리(및 질량 상호작용)에 의해 결정됩니다.
+- radius cutoff(하드/소프트)로 거리 기반 sparsity를 학습할 수 있습니다.
+- mass 기반 repulsion regularizer로 좌표 collapse를 억제합니다.
 
 ---
 
@@ -54,14 +62,14 @@ RunPod에서 실행/모니터링/다운로드는 아래를 참고하세요:
 pip install -r requirements.txt
 ```
 
-Python 3.11+ 권장입니다. CUDA GPU에서 학습이 훨씬 빠릅니다(CPU 학습도 가능하지만 느립니다).
+Python 3.11+ 권장. 학습은 CUDA GPU 권장.
 
 ---
 
 ## 빠른 시작 (TinyShakespeare)
 
 ```bash
-# TinyShakespeare 다운로드
+# TinyShakespeare 다운로드/준비
 python prepare_data.py
 
 # NGT 학습(기본 설정)
@@ -70,33 +78,33 @@ python train_shakespeare.py --max-steps 5000 --checkpoint-path checkpoints/shake
 # Vanilla baseline 학습
 python train_shakespeare_vanilla.py --max-steps 5000 --checkpoint-path checkpoints/vanilla_shakespeare.pt
 
-# 채팅(체크포인트 config로 NGT/Vanilla 자동 판별)
+# 채팅(체크포인트 config로 NGT/Vanilla 자동 감지)
 python chat.py --checkpoint-path checkpoints/shakespeare.pt_best.pt
 python chat.py --checkpoint-path checkpoints/vanilla_shakespeare.pt_best.pt
 ```
 
 ---
 
-## 체크포인트 & 재시작(--resume)
+## 체크포인트와 재개(--resume)
 
-`--checkpoint-path checkpoints/foo.pt` 를 주면 학습 중 다음 파일을 저장합니다:
+`--checkpoint-path checkpoints/foo.pt`로 실행하면 다음 파일들이 만들어집니다:
 
-- 베스트(검증 손실 기준): `checkpoints/foo.pt_best.pt`
-- 마지막(최종): `checkpoints/foo.pt_last.pt`
+- 검증 성능이 가장 좋았던 모델: `checkpoints/foo.pt_best.pt`
+- 마지막 step의 모델 상태: `checkpoints/foo.pt_last.pt`
 
-`--resume` 는 `*_last.pt` → `*_best.pt` → 기본 경로 순서로 로드합니다.
+`--resume`은 `*_last.pt` -> `*_best.pt` -> base 경로 순서로 로드합니다.
 
 ---
 
 ## 학습 (NGT)
 
-전체 옵션은 `python train_shakespeare.py --help` 를 참고하세요. 자주 쓰는 옵션:
+전체 옵션은 `python train_shakespeare.py --help` 참고. 자주 쓰는 옵션:
 
 - 데이터셋: `--dataset {shakespeare,wikitext103}`, `--data-path ...`
 - 토크나이저: `--tokenizer {char,bpe,tiktoken}`
-  - BPE 예: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
+  - BPE: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - 정규화: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
-- 희소화: `--no-radius-cutoff` 또는 `--use-soft-cutoff`
+- sparsity: `--no-radius-cutoff` 또는 `--use-soft-cutoff`
 - 성능: `--use-rsqrt`, `--use-amp`, `--gradient-accumulation-steps`
 - 스케줄: `--use-cosine-schedule --warmup-steps N`
 
@@ -113,62 +121,31 @@ python train_shakespeare.py --dataset wikitext103 --data-path data \
 
 ---
 
-## RunPod 워크플로우 (WikiText-103 ~25M)
+## TensorBoard & 좌표 시각화
 
-- 실행 가이드: `GUIDE.md`
-- 인수인계/세션 노트: `FUTURE.md`
-- 러너 스크립트: `run_wikitext103_25m.sh` (`budget10` 모드로 스크리닝 + 리포트 생성)
-
-`scp`/추가 포트 노출이 막혀있다면, 결과 다운로드는 `runpodctl send/receive`를 권장합니다:
-
-```bash
-# RunPod pod에서
-tar -cJf /tmp/w3_25m_results.tar.xz results/w3_25m
-runpodctl send /tmp/w3_25m_results.tar.xz
-```
-
-```powershell
-# 로컬 Windows PowerShell에서
-.\runpodctl.exe receive <CODE>
-```
-
----
-
-## TensorBoard (스칼라 + Projector)
-
-기본적으로 `runs/...`에 로그가 생성됩니다.
+TensorBoard:
 
 ```bash
 tensorboard --logdir runs
 ```
 
-Projector 임베딩을 남기려면 `--vis-interval` 을 설정하세요(미지정 시 `--eval-interval` 값으로 동작).
-
----
-
-## 좌표 시각화 (3D PCA)
+좌표 시각화(3D PCA -> Plotly HTML):
 
 ```bash
 python visualize_coords.py --checkpoint-path checkpoints/shakespeare.pt_best.pt --output coords.html
 ```
 
-Plotly 기반 HTML을 생성하며, 점 크기/색으로 질량을 표현합니다.
-
----
-
-## 테스트
-
-```bash
-pytest -q
-```
-
-알려진 이슈: 기본값인 “하드” 반경 컷오프는 bool 마스킹을 사용하므로 `radius_param` 에 gradient가 흐르지 않습니다. 이 때문에 현재 `test_ngt.py`의 `test_gradient_flow` 가 실패합니다.
-
 ---
 
 ## 보안 주의
 
-체크포인트는 `torch.load(..., weights_only=False)` 로 로드하며 내부적으로 pickle을 사용합니다. 신뢰할 수 없는 `.pt` 파일은 로드하지 마세요.
+체크포인트는 `torch.load(..., weights_only=False)`로 로드하며, Python pickle을 사용합니다. 신뢰할 수 없는 `.pt` 파일은 로드하지 마세요.
+
+---
+
+## 소개
+
+안녕하세요, 저는 **이태규(Taegyu Lee)** 입니다. 물리 기반 어텐션 메커니즘과 기하학적 해석 가능성에 관심이 있어 NGT를 개인 프로젝트로 실험하고 있습니다.
 
 ---
 
