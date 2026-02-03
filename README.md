@@ -1,6 +1,8 @@
-# Newton Gravity Transformer (NGT)
+﻿# Newton Gravity Transformer (NGT)
 
-**[English](README.md)** | **[한국어](README_KO.md)**
+<a id="top"></a>
+
+**[English](README.md)** | **[Korean](README_KO.md)**
 
 ### *"Words are Particles, Attention is Gravity"*
 
@@ -8,290 +10,153 @@
 [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**NGT** is a personal experimental project that explores a radical alternative to the standard Transformer: replacing Dot-product Attention with a physics-informed **Gravity Kernel**.
+NGT explores a physics-inspired alternative to dot-product attention: tokens are particles with **mass** and **coordinates**, and attention is a learnable **gravity kernel** over distances in a latent space.
 
-[Architecture](#architecture) • [Mathematical Concept](#mathematical-concept) • [Installation](#installation) • [Usage](#usage) • [Contribution](#contribution)
+## Highlights
 
----
-
-## 💡 Project Background
-
-Hi! I'm **Taegyu Lee**, an undergraduate student passionate about AI.
-
-This project was born from a simple curiosity: *"What if semantic relationships followed the laws of motion and gravity?"* The entire development process embraced the **Vibe Coding** methodology—prioritizing a rapid, iterative creative flow to translate abstract physical metaphors into a functional neural architecture.
-
-NGT isn't just a model; it's an exploration of **Geometric Interpretability**. By assigning physical properties like mass and coordinates to tokens, users can visualize the "gravity" of language in a way that standard attention heatmaps cannot.
-
----
-
-## 🌌 Core Concept
-
-While standard Transformers compute similarity using vector magnitudes and angles (Dot-product), NGT introduces a **Metric Structure** based on **Distance ($r$)** and **Mass ($m$)**.
-
-### 1. Gravity Attention
-Instead of statistical pattern matching, NGT models the "attraction" between tokens. A high-mass token (e.g., a subject or a key keyword) exerts a stronger gravitational pull on nearby tokens, naturally forming a context-aware orbit.
-
-### 2. Learnable Sparse Attention (Radius Cutoff)
-NGT implements an adaptive sparsity mechanism. Each layer learns its own **interaction radius**. If the latent distance between two tokens exceeds this learnable threshold, they are masked out. This allows the model to dynamically decide the scope of its local vs. global attention.
-
-### 3. Coordinate Evolution (Neural ODE-like Flow)
-In NGT, the depth of the network represents a flow in time. Tokens don't just update their semantic vectors; their locations in the latent manifold evolve across layers based on their interactions, similar to particles moving through a gravitational field.
+- Gravity attention with learnable per-head strength (gamma) and bias (beta)
+- Mass embedding (`Softplus`) and coordinate embedding (`z`)
+- Coordinate evolution across layers + learnable radius cutoff (hard or soft)
+- Repulsion regularizer (mass-based, distance-clamped for stability)
+- Tokenizers: `char`, `bpe` (HF `tokenizers`), `tiktoken`
+- TensorBoard scalars + Projector embeddings
+- Checkpoint safety: `*_best.pt` and `*_last.pt` + robust `--resume`
+- Inference compatibility for legacy checkpoints in `chat.py`
 
 ---
 
-## 🏗️ Architecture
+## Installation
 
-### Dual-Stream Co-Evolution
-
-NGT maintains two synchronized data streams:
-- **Hidden States ($h$):** The semantic "cargo" of the token (Standard Transformer flow).
-- **Latent Coordinates ($z$):** The geometric "position" of the token (Geometric flow).
-
-```python
-# The "Physical" Attention Score Formula
-Score(i, j) = -gamma * (mass_i * mass_j) / (distance(i, j)**2 + epsilon)
-```
-
-As the token semantics ($h$) update, they drive the movements of the coordinates ($z$), which in turn changes the attention patterns for the next layer.
-
----
-
-## 🔢 Mathematical Concept (Abstracted)
-
-### 1. Gravity Attention Kernel
-
-$$\text{Score}_{ij} = -\gamma \cdot \frac{m_i \cdot m_j}{\|z_i - z_j\|^2 + \epsilon} + \beta$$
-
-- **$\gamma$ (Gravitational Constant)**: A learnable parameter controlling the overall interaction strength.
-- **$\beta$ (Gravity Bias)**: A learnable per-head bias that widens the softmax dynamic range, allowing scores to be positive or negative.
-- **$m$ (Mass)**: Learned scalar representing the token's "importance" or "pull".
-- **$z$ (Coordinates)**: Token position in a low-dimensional latent manifold $(d=16, 32)$.
-
-### 2. Adaptive Sparsity
-
-$$\text{Mask}_{ij} = \mathbb{1}\left[\|z_i - z_j\|^2 > r^2\right]$$
-
-The model optimizes the radius $r$ through training, enabling it to focus on "gravitationally significant" clusters while safely ignoring distant noise.
-
----
-
-## 🚀 Installation & Usage
-
-### 1. Getting Started
 ```bash
-git clone https://github.com/leetae9yu/newton-gravity-transformer.git
-cd newton-gravity-transformer
 pip install -r requirements.txt
 ```
 
-### 2. Quick Run (TinyShakespeare)
+Python 3.11+ is recommended. Training is much faster on CUDA GPUs; CPU training works but is slow.
+
+---
+
+## Quickstart (TinyShakespeare)
+
 ```bash
-# Download dataset
+# Download TinyShakespeare
 python prepare_data.py
 
-# Train NGT (default settings)
-python train_shakespeare.py --max-steps 5000
+# Train NGT (default config)
+python train_shakespeare.py --max-steps 5000 --checkpoint-path checkpoints/shakespeare.pt
 
-# Train Vanilla Transformer (same hyperparameters, for comparison)
-python train_shakespeare_vanilla.py --max-steps 5000
+# Train Vanilla baseline
+python train_shakespeare_vanilla.py --max-steps 5000 --checkpoint-path checkpoints/vanilla_shakespeare.pt
 
-# Chat with trained model (auto-detects NGT or Vanilla from checkpoint)
+# Chat (NGT / Vanilla auto-detected from checkpoint config)
 python chat.py --checkpoint-path checkpoints/shakespeare.pt_best.pt
 python chat.py --checkpoint-path checkpoints/vanilla_shakespeare.pt_best.pt
 ```
 
-### 3. My Checkpoints (5k steps)
-You can check my checkpoints in the `5k-v0.1` directory.
-I trained the model for 5k steps. My T4 Free-tier GPU worked hard for it :)
+---
 
-### 4. Model Configuration (Default)
+## Checkpoints & Resume
 
-| Hyperparameter | Value | Description |
-|----------------|-------|-------------|
-| `Total Parameters` | **4M** | Total trainable parameters |
-| `vocab_size` | 65 | Character-level Vocabulary (TinyShakespeare) |
-| `hidden_dim` | 256 | Dimension of token embeddings & hidden states |
-| `coord_dim` | 32 | Dimension of the latent coordinate space |
-| `num_layers` | 6 | Number of NGT blocks (depth) |
-| `num_heads` | 8 | Number of gravity attention heads |
-| `mlp_dim` | 1024 | Dimension of Feed-Forward Network internal layer |
-| `block_size` | 256 | Maximum context length (sequence length) |
-| `batch_size` | 64 | Training batch size |
+When you pass `--checkpoint-path checkpoints/foo.pt`, training writes:
 
-### 5. Ablation Experiment Flags
+- Best validation model: `checkpoints/foo.pt_best.pt`
+- Final model state: `checkpoints/foo.pt_last.pt`
 
-The following flags allow controlled **ablation experiments** to isolate and measure the impact of each component. All flags are available for `train_shakespeare.py`; a subset is available for `train_shakespeare_vanilla.py`.
-
-#### Architecture Ablation (NGT only)
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--no-radius-cutoff` | Off (radius cutoff **enabled**) | Disables learnable radius sparse masking. Attention sees all token pairs regardless of distance. |
-| `--no-repulsion` | Off (repulsion **enabled**) | Disables repulsion loss term. Coordinates still evolve but are not pushed apart. |
-
-#### Computation Optimization (NGT only)
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--use-rsqrt` | Off | Replaces division with `rsqrt` (GPU-friendly multiply). Eliminates the main bottleneck in gravity score computation. |
-| `--mass-in-value` | Off | Moves mass from attention scores to value weighting. Removes the L×L mass outer product. Mass becomes "broadcasting power" instead of "mutual attraction". |
-| `--use-soft-cutoff` | Off | Replaces hard radius masking (bool + masked_fill) with smooth ReLU-style decay. Removes branching for better GPU throughput. |
-
-#### Training Optimization (NGT & Vanilla)
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--use-amp` | Off | Enables Automatic Mixed Precision (FP16/FP32). Speeds up training ~1.5-2x on CUDA GPUs. Automatically ignored on CPU. |
-| `--use-cosine-schedule` | Off | Enables cosine annealing LR schedule. LR decays smoothly from initial value to near-zero. |
-| `--warmup-steps` | 0 | Number of linear warmup steps before cosine decay begins. Useful for stabilizing gravity parameters early in training. |
-| `--lambda-repulsion` | 0.05 | Weight for the repulsion loss term. Controls how strongly tokens are pushed apart in coordinate space. |
-| `--repulsion-interval` | 1 | Compute repulsion loss every N steps. Higher values reduce O(L²) overhead after coordinates have spread. |
-| `--data-path` | `data/input.txt` | Path to the training text file. |
-
-#### Example: Running Ablation Experiments
-
-```bash
-# Baseline NGT
-python train_shakespeare.py --checkpoint-path checkpoints/ngt_base.pt
-
-# rsqrt only
-python train_shakespeare.py --use-rsqrt --checkpoint-path checkpoints/ngt_rsqrt.pt
-
-# mass-in-value only
-python train_shakespeare.py --mass-in-value --checkpoint-path checkpoints/ngt_miv.pt
-
-# soft cutoff only
-python train_shakespeare.py --use-soft-cutoff --checkpoint-path checkpoints/ngt_soft.pt
-
-# All optimizations + AMP + cosine schedule with warmup
-python train_shakespeare.py --use-rsqrt --mass-in-value --use-soft-cutoff --use-amp \
-    --use-cosine-schedule --warmup-steps 200 \
-    --checkpoint-path checkpoints/ngt_all_opt.pt
-
-# Vanilla baseline + AMP
-python train_shakespeare_vanilla.py --use-amp --checkpoint-path checkpoints/vanilla_amp.pt
-```
-
-> **Note:** Use different `--checkpoint-path` for each experiment to avoid overwriting results.
+`--resume` attempts to load in this order: `*_last.pt` → `*_best.pt` → the base path.
 
 ---
 
-## 🔬 Vanilla Transformer Baseline
+## Training (NGT)
 
-A standard Transformer (`vanilla_model.py`) with identical hyperparameters is included for fair comparison. The only difference is the attention mechanism:
+See `python train_shakespeare.py --help` for the full list. Common flags:
 
-| | NGT | Vanilla |
-|---|---|---|
-| Attention | Gravity Kernel (distance + mass) | Scaled Dot-Product (Q·K) |
-| Position encoding | Coordinate embedding (evolves per layer) | Learned positional embedding (added to hidden) |
-| Extra components | Mass embedding, coordinate evolution, radius cutoff | None |
+- Dataset: `--dataset {shakespeare,wikitext103}`, `--data-path ...`
+- Tokenizers: `--tokenizer {char,bpe,tiktoken}`
+  - BPE: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
+- Regularization: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
+- Sparsity: `--no-radius-cutoff` or `--use-soft-cutoff`
+- Performance: `--use-rsqrt`, `--use-amp`, `--gradient-accumulation-steps`
+- Schedule: `--use-cosine-schedule --warmup-steps N`
 
-Both models share the same FFN, LayerNorm placement (pre-norm), residual connections, and training setup. TensorBoard logs are written to separate directories (`runs/ngt_experiment` and `runs/vanilla_experiment`) for side-by-side comparison:
+Example (WikiText-103):
+
+```bash
+python train_shakespeare.py --dataset wikitext103 --data-path data \
+  --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
+  --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
+  --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
+  --use-amp --use-cosine-schedule --warmup-steps 2000 \
+  --checkpoint-path checkpoints/w3_ngt.pt
+```
+
+---
+
+## RunPod Workflow (WikiText-103 ~25M)
+
+- Run guide: `GUIDE.md`
+- Session handoff / continuing notes: `FUTURE.md`
+- Runner script: `run_wikitext103_25m.sh` (use `budget10` for screening + report generation)
+
+If you cannot use `scp` or extra HTTP ports, prefer `runpodctl send/receive` to download results:
+
+```bash
+# on the pod
+tar -cJf /tmp/w3_25m_results.tar.xz results/w3_25m
+runpodctl send /tmp/w3_25m_results.tar.xz
+```
+
+```powershell
+# on local Windows PowerShell
+.\runpodctl.exe receive <CODE>
+```
+
+---
+
+## TensorBoard (Scalars + Projector)
+
+Training logs to `runs/...` by default.
 
 ```bash
 tensorboard --logdir runs
 ```
 
----
-
-## 📊 Results
-
-### Generated Samples (v0.1, 5k steps)
-
-> **ROMEO:**
-> Will see rey did never the id their be very sound.
->
-> **GREMIO:**
-> Ay, do fairst, leady the dead his of Paul prison tame
-> More execute mariage uper; where so do queen;
-> All pergeant you wented, all in persaks and din man;
-> The droubland ho great that soppsure
-> The the ayou commmonand lord make your 's perjustce;
-> On and them thou tirdd ust childred-shap him with estren,
-> Or our where not war, we have sweet fr
-
-> **ANGELO:**
-> I say, to not I will not to for anin that say befrormanter?
->
-> **QUEEN:**
-> Has here; then imperated here to be no friends to steate
-> To from beatie in a lleasure blow,
-> And bad the pothrod my country; I gracious and of play
-> This struing your means some was fith him.
-
-The model successfully captures the **syntactic structure** of the play script format (Speaker names, line breaks) and **Shakespearean vocabulary** (thou, lord, queen, gracious). With only 5,000 steps of training on a char-level tokenizer, it demonstrates the emergence of structural understanding from gravitational attention.
-
-<div align="center">
-  <img src="assets/5k-step-loss.png" alt="Training Loss Curve" width="600"/>
-  <p><em>Figure 1: Training Loss Curve (5k steps)</em></p>
-</div>
+To log embeddings for the Projector tab, set `--vis-interval` (defaults to `--eval-interval` when omitted).
 
 ---
 
-## 🤝 Contribution & Feedback
+## Coordinate Visualization (3D PCA)
 
-As this is an undergraduate personal project, there is plenty of room for improvement! I am always open to **PRs**, **Issues**, or casual discussions regarding:
+```bash
+python visualize_coords.py --checkpoint-path checkpoints/shakespeare.pt_best.pt --output coords.html
+```
 
-- **Mathematical Refinement**: Optimizing the gravity potential and repulsion parameters.
-- **New Physics Metaphors**: Ideas for integrating electromagnetism, fluid dynamics, or thermodynamic entropy.
-- **Hardware Optimization**: Improving the performance of the vectorized distance calculations.
-- **Interpretability Tools**: New ways to visualize the latent manifold evolution.
-
-Feel free to open an issue or submit a PR at any time!
+This produces an interactive Plotly HTML scatter where marker size/color encodes mass.
 
 ---
 
-## Changelog
+## Tests
 
-### v0.2 — Architecture & Stability Overhaul
+```bash
+pytest -q
+```
 
-**Bug Fixes**
-- Fixed last checkpoint missing ablation config (`use_rsqrt`, `mass_in_value`, `use_soft_cutoff`), which caused `--resume` to reset experiment flags
-- Fixed `generate()` in `chat.py` not handling tuple returns from the model
-- Fixed coordinate evolution using pre-attention hidden states instead of post-attention output — coordinates now evolve based on interaction results
-
-**Numerical Stability**
-- Removed unnecessary post-softmax re-normalization that could cause gradient artifacts
-- Replaced squared distance formula (`||a||² + ||b||² - 2a·b`) with direct difference `(z_i - z_j)²` to avoid catastrophic cancellation for nearby tokens
-- Replaced all `-1e9` masking values with `torch.finfo(dtype).min` for exact zero probabilities in softmax (AMP-safe)
-
-**New Features**
-- **Gravity Bias**: Learnable per-head bias ($\beta$) added to gravity scores, widening the softmax dynamic range
-- **Weight Tying**: Input embedding and output projection now share weights (standard in GPT-2/BERT), reducing parameter count
-- **Cosine LR Schedule**: `--use-cosine-schedule` with optional `--warmup-steps` for smoother convergence
-- **Repulsion Controls**: `--lambda-repulsion` (weight) and `--repulsion-interval` (periodic computation) flags for fine-grained control
-
-**Code Quality**
-- Extracted shared `FeedForward` and `build_causal_mask` into `common.py`, removing duplicates across 4 files
-- Added `max_seq_len` truncation to `VanillaTransformer` (matching NGT behavior)
-- Fixed PEP 8 import ordering in `chat.py`
-- Added explicit `weights_only=False` to all `torch.load()` calls for PyTorch 2.6+ compatibility
-
-**Testing**
-- Added 16 new tests: VanillaTransformer, tokenizer round-trip, ablation combinations, edge cases (seq_len=1, max_seq_len overflow), soft cutoff, weight tying, gravity bias
+Known issue: the default hard radius cutoff uses a boolean mask, so `radius_param` does not receive gradients; this currently makes `test_gradient_flow` fail in `test_ngt.py`.
 
 ---
 
-## 🗺️ Roadmap: The Future
+## Security note
 
-1. **Advanced Tokenization**: Currently, NGT uses a **Character-Level Tokenizer** to minimize memory overhead for environment constraints (e.g., Google Colab T4 GPUs). However, to truly realize the *"Words are Particles"* philosophy, I plan to transition to **Subword Tokenizers (BPE / Tiktoken)**. This will allow the model to interact with higher-level semantic units as individual physical particles.
-
-2. **Integration with Stable Diffusion**: One of the most exciting future phases for NGT is the **Integration with Stable Diffusion**. By aligning the NGT coordinate space with the latent space of Diffusion models, I aim to use "Semantic Gravity" to guide image generation—allowing physical masses in text to act as literal anchors for visual objects.
-
-3. **Visualization**: Because NGT currently uses a Character-Level Tokenizer, I thought that this project doesn't need any visualization yet. But, after I swithch to Subword Tokenizers, I plan to implement some visualization tools to help users understand the latent manifold evolution.
-
-~~4. **Naming**: The codebase has been fully migrated from the initial name **HGT (Hierarchical Gravity Transformer)** to **NGT (Newton Gravity Transformer)** to avoid confusion with the well-known **Heterogeneous Graph Transformer**.~~
+Checkpoints are loaded via `torch.load(..., weights_only=False)`, which uses Python pickle. Do not load untrusted `.pt` files.
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+MIT (see `LICENSE`).
 
 ---
 
 <div align="center">
 
-**[⬆ Back to Top](#newton-gravity-transformer-ngt)**
+**[Back to Top](#top)**
 
 </div>

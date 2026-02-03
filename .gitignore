@@ -69,6 +69,14 @@ data/
 # User Learning Workspace
 learn_ngt/
 
+# Local / tooling
+.claude/
+runpodctl.exe
+*.tar.xz
+*.tgz
+w3_25m_results*/
+w3_25m_results_latest*/
+
 # In Progress
 BOTTLENECK_ANALYSIS.md
 TROUBLESHOOTING.md
