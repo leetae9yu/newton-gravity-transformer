@@ -20,8 +20,7 @@ This repo includes end-to-end training, logging (TensorBoard), checkpointing (`*
 
 Current focus is WikiText-103 with BPE-8192 and ~25M parameter scale.
 
-- RunPod workflow + commands: `GUIDE.md`
-- Session handoff / how to continue runs: `FUTURE.md`
+- Minimal reproduction script (vanilla + NGT mass-in-value @15k): `run_wikitext103_25m.sh`
 - Latest tracked experiment summary: `reports/w3_25m_summary.md`
 
 ### Latest screening snapshot (w3_25m, seed=42, max_steps=15000)
@@ -32,10 +31,6 @@ Validation loss is cross-entropy; perplexity is `exp(loss)`.
 |---|---|---:|---:|
 | vanilla | baseline | 4.5554 | 95.14 |
 | NGT | `--mass-in-value` | 4.6635 | 106.01 |
-| NGT | `--no-repulsion` | 4.7214 | 112.33 |
-| NGT | `--repulsion-interval 8` | 4.7889 | 120.17 |
-| NGT | default | 4.7915 | 120.48 |
-| NGT | `--no-radius-cutoff` | 4.7940 | 120.78 |
 
 Throughput on the same settings (B=16, accum=2, block=512):
 - vanilla: ~4.97 steps/s
@@ -66,21 +61,18 @@ Python 3.11+ is recommended. CUDA is strongly recommended for training.
 
 ---
 
-## Quickstart (TinyShakespeare)
+## Quickstart (WikiText-103, 15k)
 
 ```bash
-# Download TinyShakespeare
-python prepare_data.py
+# Download/caches WikiText-103 via HuggingFace datasets
+python prepare_data.py --dataset wikitext103
 
-# Train NGT (default config)
-python train_shakespeare.py --max-steps 5000 --checkpoint-path checkpoints/shakespeare.pt
-
-# Train Vanilla baseline
-python train_shakespeare_vanilla.py --max-steps 5000 --checkpoint-path checkpoints/vanilla_shakespeare.pt
+# Run vanilla + NGT (mass-in-value) at 15k steps
+bash run_wikitext103_25m.sh
 
 # Chat (NGT / Vanilla auto-detected from checkpoint config)
-python chat.py --checkpoint-path checkpoints/shakespeare.pt_best.pt
-python chat.py --checkpoint-path checkpoints/vanilla_shakespeare.pt_best.pt
+python chat.py --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt_best.pt
+python chat.py --checkpoint-path checkpoints/w3_25m/vanilla_25m.pt_best.pt
 ```
 
 ---

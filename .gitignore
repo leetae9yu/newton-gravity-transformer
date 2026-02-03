@@ -83,6 +83,16 @@ runpodctl.exe
 w3_25m_results*/
 w3_25m_results_latest*/
 
+# Optional analysis / internal docs (not tracked)
+FUTURE.md
+GUIDE.md
+compare_runs.py
+generate_report.py
+run_experiments.sh
+test_ngt.py
+visualize_coords.py
+reports/Summary.md
+
 # Experiment artifacts (not source)
 5k-v0.1/
 assets/5k-step-loss.png

@@ -20,8 +20,7 @@ NGT(Newton Gravity Transformer)는 토큰을 “입자”처럼 취급하는 실
 
 현재 포커스는 WikiText-103 + BPE-8192 + ~25M 파라미터 스케일의 스크리닝 실험입니다.
 
-- RunPod 워크플로/명령어: `GUIDE.md`
-- 세션 인수인계/다음 실험 메모: `FUTURE.md`
+- 최소 재현 스크립트(15k vanilla + NGT mass-in-value): `run_wikitext103_25m.sh`
 - 최신 실험 요약(추적): `reports/w3_25m_summary.md`
 
 ### 최신 스크리닝 스냅샷 (w3_25m, seed=42, max_steps=15000)
@@ -32,10 +31,6 @@ val loss는 cross-entropy이며, perplexity는 `exp(loss)` 입니다.
 |---|---|---:|---:|
 | vanilla | baseline | 4.5554 | 95.14 |
 | NGT | `--mass-in-value` | 4.6635 | 106.01 |
-| NGT | `--no-repulsion` | 4.7214 | 112.33 |
-| NGT | `--repulsion-interval 8` | 4.7889 | 120.17 |
-| NGT | default | 4.7915 | 120.48 |
-| NGT | `--no-radius-cutoff` | 4.7940 | 120.78 |
 
 같은 설정(B=16, accum=2, block=512)에서의 대략적 처리량:
 - vanilla: ~4.96 steps/s
@@ -66,21 +61,18 @@ Python 3.11+ 권장. 학습은 CUDA GPU 권장.
 
 ---
 
-## 빠른 시작 (TinyShakespeare)
+## 빠른 시작 (WikiText-103, 15k)
 
 ```bash
-# TinyShakespeare 다운로드/준비
-python prepare_data.py
+# WikiText-103 다운로드/캐시(HuggingFace datasets)
+python prepare_data.py --dataset wikitext103
 
-# NGT 학습(기본 설정)
-python train_shakespeare.py --max-steps 5000 --checkpoint-path checkpoints/shakespeare.pt
-
-# Vanilla baseline 학습
-python train_shakespeare_vanilla.py --max-steps 5000 --checkpoint-path checkpoints/vanilla_shakespeare.pt
+# 15k에서 vanilla + NGT(mass-in-value) 실행
+bash run_wikitext103_25m.sh
 
 # 채팅(체크포인트 config로 NGT/Vanilla 자동 감지)
-python chat.py --checkpoint-path checkpoints/shakespeare.pt_best.pt
-python chat.py --checkpoint-path checkpoints/vanilla_shakespeare.pt_best.pt
+python chat.py --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt_best.pt
+python chat.py --checkpoint-path checkpoints/w3_25m/vanilla_25m.pt_best.pt
 ```
 
 ---
