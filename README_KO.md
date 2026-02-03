@@ -12,6 +12,20 @@
 
 NGT는 dot-product attention 대신, 잠재 좌표 공간에서의 **거리**와 토큰의 **질량(mass)** 을 이용해 “중력 커널”로 어텐션을 구성하는 실험적 트랜스포머 구현입니다.
 
+## WikiText-103 진행 상황 (w3_25m)
+
+현재 이 레포는 WikiText-103 실험(BPE-8192, ~25M params)에 초점을 맞추고 있습니다. 최신 스크리닝 요약:
+- `reports/w3_25m_summary.md`
+
+**스크리닝 스냅샷 (seed=42, max_steps=15000):**
+- 전체 최고(15000 step 기준): Vanilla val loss `4.5554` (ppl `95.14`)
+- NGT 최고(15000 step 기준): `--mass-in-value` val loss `4.6635` (ppl `106.01`)
+- 동일 설정에서 속도: Vanilla ~`4.97` steps/s vs NGT ~`0.83–0.86` steps/s (대략 `6x` 느림)
+
+RunPod에서 실행/모니터링/다운로드는 아래를 참고하세요:
+- `GUIDE.md` (명령어 모음)
+- `FUTURE.md` (인수인계/재개 노트)
+
 ## 핵심 기능
 
 - 중력 기반 어텐션(gamma: 세기, beta: bias, 헤드별 학습)
@@ -23,6 +37,14 @@ NGT는 dot-product attention 대신, 잠재 좌표 공간에서의 **거리**와
 - TensorBoard 스칼라 + Projector 임베딩 로깅
 - 체크포인트 안정화: `*_best.pt` + `*_last.pt`, `--resume` 로드 우선순위 지원
 - `chat.py`에서 레거시 체크포인트 호환(누락된 `mass_emb`, 구버전 `coord_proj_next`)
+
+---
+
+## 소개
+
+안녕하세요! AI에 관심이 많은 학부생 **이태규**입니다.
+
+이 프로젝트는 *"의미적 관계가 운동/중력 같은 물리 법칙을 따른다면 어떨까?"* 라는 호기심에서 시작됐고, 그 아이디어를 학습/로깅/시각화/체크포인트 관리까지 포함한 형태로 끝까지 검증해보는 개인 연구형 구현입니다.
 
 ---
 

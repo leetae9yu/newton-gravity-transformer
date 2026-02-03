@@ -12,6 +12,20 @@
 
 NGT explores a physics-inspired alternative to dot-product attention: tokens are particles with **mass** and **coordinates**, and attention is a learnable **gravity kernel** over distances in a latent space.
 
+## WikiText-103 Status (w3_25m)
+
+This repo currently focuses on WikiText-103 experiments (BPE-8192, ~25M params). Latest screening summary:
+- `reports/w3_25m_summary.md`
+
+**Screening snapshot (seed=42, max_steps=15000):**
+- Best overall (final @15000): Vanilla val loss `4.5554` (ppl `95.14`)
+- Best NGT (final @15000): `--mass-in-value` val loss `4.6635` (ppl `106.01`)
+- Throughput on the same settings: Vanilla ~`4.97` steps/s vs NGT ~`0.83–0.86` steps/s (~`6x` slower)
+
+For how to run/monitor/download on RunPod, see:
+- `GUIDE.md` (commands)
+- `FUTURE.md` (handoff notes / continue training)
+
 ## Highlights
 
 - Gravity attention with learnable per-head strength (gamma) and bias (beta)
@@ -22,6 +36,14 @@ NGT explores a physics-inspired alternative to dot-product attention: tokens are
 - TensorBoard scalars + Projector embeddings
 - Checkpoint safety: `*_best.pt` and `*_last.pt` + robust `--resume`
 - Inference compatibility for legacy checkpoints in `chat.py`
+
+---
+
+## About
+
+Hi! I'm **Taegyu Lee**, an undergraduate student exploring physics-inspired attention mechanisms and geometric interpretability in language models.
+
+This project started from a simple question: *"What if semantic relationships followed something like motion + gravity?"* NGT is a personal research-style implementation to test that idea end-to-end (training, logging, visualization, and checkpoint management).
 
 ---
 
