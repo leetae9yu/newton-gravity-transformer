@@ -20,21 +20,31 @@ This repo includes end-to-end training, logging (TensorBoard), checkpointing (`*
 
 Current focus is WikiText-103 with BPE-8192 and ~25M parameter scale.
 
-- Minimal reproduction script (vanilla + NGT mass-in-value @15k): `run_wikitext103_25m.sh`
-- Latest tracked experiment summary: `reports/w3_25m_summary.md`
+- Minimal reproduction script (15k screening): `run_wikitext103_25m.sh`
+- Minimal summary: `reports/w3_25m_summary.md`
+- Full screening artifacts: `w3_25m_results/results/w3_25m/Summary.md`
 
 ### Latest screening snapshot (w3_25m, seed=42, max_steps=15000)
 
 Validation loss is cross-entropy; perplexity is `exp(loss)`.
 
-| model | config | val loss @15000 | ppl |
-|---|---|---:|---:|
-| vanilla | baseline | 4.5554 | 95.14 |
-| NGT | `--mass-in-value` | 4.6635 | 106.01 |
+| run | config | val loss @15000 | ppl @15000 | best val loss (step) |
+|---|---|---:|---:|---:|
+| vanilla | baseline | 4.5554 | 95.14 | 4.5524 (13500) |
+| ngt_mass_in_value | `--mass-in-value --use-rsqrt` | 4.6635 | 106.01 | 4.6451 (13000) |
+| ngt_no_repulsion | `--no-repulsion --use-rsqrt` | 4.7214 | 112.33 | 4.7214 (15000) |
+| ngt_repulsion_interval_8 | `--repulsion-interval 8 --use-rsqrt` | 4.7889 | 120.17 | 4.7748 (13000) |
+| ngt_default | `--use-rsqrt` | 4.7915 | 120.48 | 4.7762 (13000) |
+| ngt_no_radius | `--no-radius-cutoff --use-rsqrt` | 4.7940 | 120.78 | 4.7772 (13000) |
 
-Throughput on the same settings (B=16, accum=2, block=512):
-- vanilla: ~4.97 steps/s
-- NGT: ~0.83-0.86 steps/s (~6x slower)
+Throughput on the same settings (`batch=16`, `accum=2`, `block=512`):
+
+- vanilla: ~4.964 steps/s
+- ngt_mass_in_value: ~0.852 steps/s
+- ngt_no_radius: ~0.855 steps/s
+- ngt_default / ngt_no_repulsion / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
+
+This is a budget-constrained screening run (15k steps, roughly about 2 epochs depending on tokenized train-set size), so treat results as directional.
 
 ---
 
@@ -43,6 +53,7 @@ Throughput on the same settings (B=16, accum=2, block=512):
 Standard Transformers compute attention via dot products between query/key vectors.
 
 NGT introduces a geometric stream:
+
 - Each token has a hidden state `h` (semantic stream) and coordinate `z` (geometric stream)
 - Each token has a learned mass `m` (kept positive via `Softplus`)
 - Attention scores depend on distance in `z` space (and mass interaction), not dot products
@@ -51,20 +62,18 @@ NGT introduces a geometric stream:
 
 ---
 
-## Installation
+## Installation, quickstart, and checkpoints
+
+Install:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Python 3.11+ is recommended. CUDA is strongly recommended for training.
-
----
-
-## Quickstart (WikiText-103, 15k)
+Quickstart (WikiText-103, 15k screening):
 
 ```bash
-# Download/caches WikiText-103 via HuggingFace datasets
+# Download/cache WikiText-103 via HuggingFace datasets
 python prepare_data.py --dataset wikitext103
 
 # Run vanilla + NGT (mass-in-value) at 15k steps
@@ -75,32 +84,32 @@ python chat.py --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt_best.pt
 python chat.py --checkpoint-path checkpoints/w3_25m/vanilla_25m.pt_best.pt
 ```
 
----
+Checkpoint policy:
 
-## Checkpoints and resume
-
-When you pass `--checkpoint-path checkpoints/foo.pt`, training writes:
-
+- If you pass `--checkpoint-path checkpoints/foo.pt`, training writes:
 - Best validation model: `checkpoints/foo.pt_best.pt`
 - Final model state: `checkpoints/foo.pt_last.pt`
+- `--resume` loads in this order: `*_last.pt` -> `*_best.pt` -> base path
 
-`--resume` attempts to load in this order: `*_last.pt` -> `*_best.pt` -> the base path.
+Python 3.11+ is recommended. CUDA is strongly recommended for training.
 
 ---
 
 ## Training (NGT)
 
-See `python train_shakespeare.py --help` for the full list. Common flags:
+See `python train_shakespeare.py --help` for the full list.
+
+Common flags:
 
 - Dataset: `--dataset {shakespeare,wikitext103}`, `--data-path ...`
 - Tokenizers: `--tokenizer {char,bpe,tiktoken}`
-  - BPE: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
+- BPE option: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - Regularization: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
 - Sparsity: `--no-radius-cutoff` or `--use-soft-cutoff`
 - Performance: `--use-rsqrt`, `--use-amp`, `--gradient-accumulation-steps`
 - Schedule: `--use-cosine-schedule --warmup-steps N`
 
-Example (WikiText-103):
+Example:
 
 ```bash
 python train_shakespeare.py --dataset wikitext103 --data-path data \
@@ -113,18 +122,27 @@ python train_shakespeare.py --dataset wikitext103 --data-path data \
 
 ---
 
-## TensorBoard and coordinate visualization
+## Artifacts and visualization links
+
+Summary/report artifacts:
+
+- [Minimal summary (`reports/w3_25m_summary.md`)](reports/w3_25m_summary.md)
+- [Full summary (`w3_25m_results/results/w3_25m/Summary.md`)](w3_25m_results/results/w3_25m/Summary.md)
+- [Ablation report (`w3_25m_results/results/w3_25m/report.md`)](w3_25m_results/results/w3_25m/report.md)
+- [Results CSV (`w3_25m_results/results/w3_25m/results.csv`)](w3_25m_results/results/w3_25m/results.csv)
+
+Interactive HTML visualizations (Plotly 3D PCA):
+
+- [coords_ngt_default.html](w3_25m_results_latest/results/w3_25m/coords_ngt_default.html)
+- [coords_ngt_mass_in_value.html](w3_25m_results_latest/results/w3_25m/coords_ngt_mass_in_value.html)
+- [coords_ngt_no_radius.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_radius.html)
+- [coords_ngt_no_repulsion.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_repulsion.html)
+- [coords_ngt_repulsion_interval_8.html](w3_25m_results_latest/results/w3_25m/coords_ngt_repulsion_interval_8.html)
 
 TensorBoard:
 
 ```bash
 tensorboard --logdir runs
-```
-
-Coordinate visualization (3D PCA to a Plotly HTML):
-
-```bash
-python visualize_coords.py --checkpoint-path checkpoints/shakespeare.pt_best.pt --output coords.html
 ```
 
 ---
@@ -137,7 +155,11 @@ Checkpoints are loaded via `torch.load(..., weights_only=False)`, which uses Pyt
 
 ## About
 
-Hi! I'm **Taegyu Lee**, an undergraduate student exploring physics-inspired attention mechanisms and geometric interpretability in language models.
+Hi! I'm **Taegyu Lee**, an undergraduate student in Korea with strong interest in AI.
+
+I started this project to build practical personal research experience while preparing for graduate school. Since this is still undergraduate-level work, there may be many things to improve. PRs and issues are always welcome.
+
+Contact: `mjrror@korea.ac.kr`
 
 ---
 
