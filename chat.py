@@ -7,7 +7,6 @@ import torch.nn.functional as F
 
 from common import build_causal_mask
 from ngt_model import NewtonGravityTransformer
-from vanilla_model import VanillaTransformer
 from tokenizer_utils import load_tokenizer
 
 def is_legacy_coord_proj(state_dict, coord_dim, hidden_dim):
@@ -49,7 +48,7 @@ def parse_args():
     parser.add_argument(
         "--checkpoint-path", 
         type=str, 
-        default=os.path.join("checkpoints", "shakespeare.pt_best.pt"),
+        default=os.path.join("checkpoints", "w3_25m", "ngt_mass_in_value.pt_best.pt"),
         help="Path to the model checkpoint file."
     )
     return parser.parse_args()
@@ -71,7 +70,7 @@ def main():
     hidden_dim = config["hidden_dim"]
     state_dict = checkpoint["model_state"]
 
-    # Auto-detect model type: coord_dim exists in config → NGT, otherwise → Vanilla
+    # Auto-detect model type: coord_dim exists in config -> NGT
     is_ngt = "coord_dim" in config
 
     if is_ngt:
@@ -113,17 +112,8 @@ def main():
 
         print("Model type: NGT (Newton Gravity Transformer)")
     else:
-        model = VanillaTransformer(
-            num_tokens=vocab_size,
-            hidden_dim=hidden_dim,
-            num_layers=config["num_layers"],
-            num_heads=config["num_heads"],
-            mlp_dim=config["mlp_dim"],
-            max_seq_len=config["max_seq_len"],
-            dropout=config["dropout"],
-        ).to(device)
-        model.load_state_dict(state_dict)
-        print("Model type: Vanilla Transformer")
+        print("This repository is now NGT-only. Non-NGT checkpoints are not supported.")
+        return
 
     block_size = config["max_seq_len"]
     dataset_name = config.get("dataset", "shakespeare")

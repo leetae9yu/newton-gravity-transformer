@@ -20,7 +20,6 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 
 현재 포커스는 WikiText-103 + BPE-8192 + 약 25M 파라미터 스케일의 스크리닝 실험입니다.
 
-- 최소 재현 스크립트(15k 스크리닝): `run_wikitext103_25m.sh`
 - 최소 요약: `reports/w3_25m_summary.md`
 - 전체 스크리닝 아티팩트: `w3_25m_results/results/w3_25m/Summary.md`
 - 사전학습 체크포인트(w3_25m): `https://huggingface.co/leetae9yu/newton-gravity-transformer/tree/main/checkpoints/w3_25m`
@@ -86,12 +85,16 @@ pip install -r requirements.txt
 # WikiText-103 다운로드/캐시(HuggingFace datasets)
 python prepare_data.py --dataset wikitext103
 
-# 15k에서 vanilla + NGT(mass-in-value) 실행
-bash run_wikitext103_25m.sh
+# NGT 학습 실행
+python train_shakespeare.py --dataset wikitext103 --data-path data \
+  --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
+  --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
+  --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
+  --use-amp --use-rsqrt --use-cosine-schedule --warmup-steps 2000 \
+  --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt --run-name w3_25m_ngt
 
-# 채팅(체크포인트 config로 NGT/Vanilla 자동 감지)
+# 채팅(NGT 전용)
 python chat.py --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt_best.pt
-python chat.py --checkpoint-path checkpoints/w3_25m/vanilla_25m.pt_best.pt
 ```
 
 체크포인트 정책:

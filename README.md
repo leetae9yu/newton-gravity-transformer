@@ -20,7 +20,6 @@ This repo includes end-to-end training, logging (TensorBoard), checkpointing (`*
 
 Current focus is WikiText-103 with BPE-8192 and ~25M parameter scale.
 
-- Minimal reproduction script (15k screening): `run_wikitext103_25m.sh`
 - Minimal summary: `reports/w3_25m_summary.md`
 - Full screening artifacts: `w3_25m_results/results/w3_25m/Summary.md`
 - Pretrained checkpoints (w3_25m): `https://huggingface.co/leetae9yu/newton-gravity-transformer/tree/main/checkpoints/w3_25m`
@@ -86,12 +85,16 @@ Quickstart (WikiText-103, 15k screening):
 # Download/cache WikiText-103 via HuggingFace datasets
 python prepare_data.py --dataset wikitext103
 
-# Run vanilla + NGT (mass-in-value) at 15k steps
-bash run_wikitext103_25m.sh
+# Run NGT training
+python train_shakespeare.py --dataset wikitext103 --data-path data \
+  --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
+  --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
+  --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
+  --use-amp --use-rsqrt --use-cosine-schedule --warmup-steps 2000 \
+  --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt --run-name w3_25m_ngt
 
-# Chat (NGT / Vanilla auto-detected from checkpoint config)
+# Chat (NGT only)
 python chat.py --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt_best.pt
-python chat.py --checkpoint-path checkpoints/w3_25m/vanilla_25m.pt_best.pt
 ```
 
 Checkpoint policy:

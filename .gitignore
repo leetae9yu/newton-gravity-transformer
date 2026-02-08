@@ -97,6 +97,11 @@ test_ngt.py
 visualize_coords.py
 reports/Summary.md
 
+# Keep repo focused on NGT chat/training core only
+*.sh
+train_shakespeare_vanilla.py
+vanilla_model.py
+
 # Experiment artifacts (not source)
 5k-v0.1/
 assets/
