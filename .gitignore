@@ -69,8 +69,12 @@ checkpoints_ideal/
 # Data (download via prepare_data.py)
 data/
 
-# Generated results (reports/ stays tracked)
+# Generated results
 results/
+reports/
+total_results/
+w3_25m_results/
+w3_25m_results_latest/
 
 # User Learning Workspace
 learn_ngt/
@@ -78,10 +82,10 @@ learn_ngt/
 # Local / tooling
 .claude/
 runpodctl.exe
+*.zip
 *.tar.xz
 *.tgz
-w3_25m_results*/
-w3_25m_results_latest*/
+.gitattributes
 
 # Optional analysis / internal docs (not tracked)
 FUTURE.md
@@ -95,7 +99,7 @@ reports/Summary.md
 
 # Experiment artifacts (not source)
 5k-v0.1/
-assets/5k-step-loss.png
+assets/
 
 # In Progress
 BOTTLENECK_ANALYSIS.md

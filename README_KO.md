@@ -23,6 +23,16 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 - 최소 재현 스크립트(15k 스크리닝): `run_wikitext103_25m.sh`
 - 최소 요약: `reports/w3_25m_summary.md`
 - 전체 스크리닝 아티팩트: `w3_25m_results/results/w3_25m/Summary.md`
+- 사전학습 체크포인트(w3_25m): `https://huggingface.co/leetae9yu/newton-gravity-transformer/tree/main/checkpoints/w3_25m`
+
+셰익스피어 데이터셋/체크포인트는 레거시 경로로 두고, 현재 프로젝트에서는 더 이상 적극적으로 사용하지 않습니다.
+
+### 프로젝트 진행 흐름 (TinyShakespeare -> WikiText-103)
+
+- 초기 단계는 TinyShakespeare(char-level)를 빠른 프로토타이핑용으로 사용했습니다.
+- 보관된 5k-step TinyShakespeare 체크포인트 기준 best validation loss는 약 `1.70`, 이후 약 `1.55`까지 개선했습니다.
+- 이후 더 큰 규모 검증을 위해 WikiText-103 (~25M 파라미터 스케일)로 전환했습니다.
+- 앞으로도 모델 규모와 학습 예산을 단계적으로 계속 키워 나갈 계획입니다.
 
 ### 최신 스크리닝 스냅샷 (w3_25m, seed=42, max_steps=15000)
 

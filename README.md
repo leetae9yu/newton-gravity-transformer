@@ -23,6 +23,16 @@ Current focus is WikiText-103 with BPE-8192 and ~25M parameter scale.
 - Minimal reproduction script (15k screening): `run_wikitext103_25m.sh`
 - Minimal summary: `reports/w3_25m_summary.md`
 - Full screening artifacts: `w3_25m_results/results/w3_25m/Summary.md`
+- Pretrained checkpoints (w3_25m): `https://huggingface.co/leetae9yu/newton-gravity-transformer/tree/main/checkpoints/w3_25m`
+
+Shakespeare dataset/checkpoints are legacy and no longer actively used in this project.
+
+### Project trajectory (TinyShakespeare -> WikiText-103)
+
+- Initial phase used TinyShakespeare (char-level) as a fast prototyping sandbox.
+- In archived 5k-step TinyShakespeare checkpoints, best validation losses reached about `1.70` and later about `1.55`.
+- After that, the project moved to larger-scale screening on WikiText-103 (~25M parameter scale).
+- Going forward, the plan is to keep scaling model capacity and training budget step by step.
 
 ### Latest screening snapshot (w3_25m, seed=42, max_steps=15000)
 
