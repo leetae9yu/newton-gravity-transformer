@@ -50,7 +50,7 @@ def get_batch(data, block_size, batch_size, device):
     y = torch.stack([data[i + 1 : i + block_size + 1] for i in ix])
     x = x.to(device)
     y = y.to(device)
-    # wikitext103 caches may be stored as int32 for memory efficiency; Embedding expects int64.
+# WikiText caches may be stored as int32 for memory efficiency; Embedding expects int64.
     if x.dtype != torch.long:
         x = x.long()
     if y.dtype != torch.long:
@@ -210,6 +210,24 @@ _WIKITEXT103_BASE = {
     "dropout": 0.1,
 }
 
+WIKITEXT2_CONFIG = {
+    "data_path": "data",
+    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext2.pt"),
+    "batch_size": 64,
+    "block_size": 256,
+    "max_steps": 20000,
+    "eval_interval": 200,
+    "eval_iters": 50,
+    "learning_rate": 3e-4,
+    "grad_clip": 1.0,
+    "hidden_dim": 256,
+    "coord_dim": 32,
+    "num_layers": 6,
+    "num_heads": 8,
+    "mlp_dim": 1024,
+    "dropout": 0.1,
+}
+
 WIKITEXT103_CONFIG = {
     **_WIKITEXT103_BASE,
     "coord_dim": 64,
@@ -240,9 +258,9 @@ def _apply_preset(args, preset, *default_dicts):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train NGT.")
-    parser.add_argument("--dataset", type=str, default="shakespeare",
-                        choices=["shakespeare", "wikitext103"],
-                        help="Dataset to train on (default: shakespeare)")
+    parser.add_argument("--dataset", type=str, default="wikitext2",
+                        choices=["shakespeare", "wikitext2", "wikitext103"],
+                        help="Dataset to train on (default: wikitext2)")
     parser.add_argument("--data-path", default=DEFAULT_CONFIG["data_path"])
     parser.add_argument("--checkpoint-path", default=DEFAULT_CONFIG["checkpoint_path"])
     parser.add_argument("--resume", action="store_true", default=DEFAULT_CONFIG["resume"])
@@ -285,7 +303,7 @@ def parse_args():
     parser.add_argument("--bpe-vocab-size", type=int, default=4000,
                         help="BPE vocabulary size (only used with --tokenizer bpe)")
     parser.add_argument("--tokenizer-path", type=str, default=None,
-                        help="Path to tokenizer state JSON to load/save for reproducibility (recommended for wikitext103)")
+                        help="Path to tokenizer state JSON to load/save for reproducibility (recommended for WikiText runs)")
     parser.add_argument("--run-name", type=str, default=None,
                         help="Custom TensorBoard run directory name (default: auto-generated)")
     parser.add_argument("--seed", type=int, default=None,
@@ -293,7 +311,9 @@ def parse_args():
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1,
                         help="Number of gradient accumulation steps (default: 1)")
     args = parser.parse_args()
-    if args.dataset == "wikitext103":
+    if args.dataset == "wikitext2":
+        _apply_preset(args, WIKITEXT2_CONFIG)
+    elif args.dataset == "wikitext103":
         _apply_preset(args, WIKITEXT103_CONFIG)
     return args
 
@@ -355,18 +375,19 @@ def main():
             print(f"Warning: --tokenizer={args.tokenizer} but tokenizer file is type={tok_type}; using tokenizer file.")
 
     if tokenizer is None:
-        if args.dataset == "wikitext103":
+        if args.dataset in {"wikitext2", "wikitext103"}:
             if args.tokenizer == "bpe":
                 from datasets import load_dataset as hf_load_dataset
-                print("Loading WikiText-103 text for BPE training...")
-                ds = hf_load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
+                hf_variant = "wikitext-2-raw-v1" if args.dataset == "wikitext2" else "wikitext-103-raw-v1"
+                print(f"Loading {hf_variant} text for BPE training...")
+                ds = hf_load_dataset("wikitext", hf_variant, split="train")
                 iterator = (line for line in ds["text"] if line.strip())
                 tokenizer = train_bpe_tokenizer_from_iterator(iterator, args.bpe_vocab_size, args.tokenizer_path)
                 del ds
             else:
                 tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
             if args.tokenizer == "char":
-                print(f"Warning: wikitext103 is best used with --tokenizer bpe or tiktoken (got {args.tokenizer})")
+                print(f"Warning: {args.dataset} is best used with --tokenizer bpe or tiktoken (got {args.tokenizer})")
         else:
             text = read_text(data_path)
             tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
@@ -377,7 +398,7 @@ def main():
 
     splits = load_dataset(args.dataset, tokenizer, data_path)
     train_data, val_data = splits["train"], splits["val"]
-    text = splits.get("text")  # None for wikitext103
+    text = splits.get("text")  # None for HuggingFace-backed WikiText datasets
     vocab_size = tokenizer.vocab_size
 
     # Probe words only make sense for char-level tokenizer with shakespeare
