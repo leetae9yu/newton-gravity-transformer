@@ -68,10 +68,11 @@ class GravityAttention(nn.Module):
         z_heads = z_heads.transpose(1, 2)
 
         # Vectorized Distance Calculation: ||z_i - z_j||^2
-        # Direct difference avoids catastrophic cancellation when z_i ≈ z_j
-        # z_heads: (B, H, L, head_coord_dim) → diff: (B, H, L, L, head_coord_dim)
-        diff = z_heads.unsqueeze(-2) - z_heads.unsqueeze(-3)
-        squared_dist = (diff * diff).sum(dim=-1)
+        # Avoid materializing the full (B, H, L, L, C) diff tensor.
+        z_norm_sq = (z_heads * z_heads).sum(dim=-1, keepdim=True)
+        squared_dist = z_norm_sq + z_norm_sq.transpose(-1, -2)
+        squared_dist = squared_dist - 2.0 * torch.matmul(z_heads, z_heads.transpose(-1, -2))
+        squared_dist = squared_dist.clamp_min(0.0)
 
         # Learnable parameters
         gamma = self.softplus(self.gamma)
