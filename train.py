@@ -264,8 +264,8 @@ def parse_args():
                         help="Disable radius cutoff in gravity attention")
     parser.add_argument("--no-repulsion", action="store_true", default=False,
                         help="Disable repulsion loss during training")
-    parser.add_argument("--use-rsqrt", action="store_true", default=False,
-                        help="Use rsqrt instead of division for gravity score (faster)")
+    parser.add_argument("--no-rsqrt", action="store_true", default=False,
+                        help="Disable rsqrt-based gravity score and use division instead")
     parser.add_argument("--mass-in-value", action="store_true", default=False,
                         help="Apply mass to value weighting instead of attention scores")
     parser.add_argument("--use-soft-cutoff", action="store_true", default=False,
@@ -390,7 +390,7 @@ def main():
 
     use_radius_cutoff = not args.no_radius_cutoff
     use_repulsion = not args.no_repulsion
-    use_rsqrt = args.use_rsqrt
+    use_rsqrt = not args.no_rsqrt
     mass_in_value = args.mass_in_value
     use_soft_cutoff = args.use_soft_cutoff
     use_amp = args.use_amp and torch.cuda.is_available()
@@ -426,7 +426,7 @@ def main():
             ablation_parts.append("no_radius")
         if args.no_repulsion:
             ablation_parts.append("no_repulsion")
-        if args.use_rsqrt:
+        if use_rsqrt:
             ablation_parts.append("rsqrt")
         if args.mass_in_value:
             ablation_parts.append("mass_val")

@@ -22,7 +22,7 @@ class GravityAttention(nn.Module):
         initial_radius: float = 4.0,
         dist_eps: float = 1e-6,
         use_radius_cutoff: bool = True,
-        use_rsqrt: bool = False,
+        use_rsqrt: bool = True,
         mass_in_value: bool = False,
         use_soft_cutoff: bool = False,
     ):
@@ -167,7 +167,7 @@ class GravityAttention(nn.Module):
 
 class NGTBlock(nn.Module):
     def __init__(self, hidden_dim, coord_dim, num_heads, mlp_dim, dropout=0.1,
-                 use_radius_cutoff=True, use_rsqrt=False, mass_in_value=False, use_soft_cutoff=False):
+                 use_radius_cutoff=True, use_rsqrt=True, mass_in_value=False, use_soft_cutoff=False):
         super().__init__()
         self.attn = GravityAttention(
             hidden_dim, coord_dim, num_heads, dropout=dropout,
@@ -211,7 +211,7 @@ class NewtonGravityTransformer(nn.Module):
         max_seq_len=512,
         dropout=0.1,
         use_radius_cutoff=True,
-        use_rsqrt=False,
+        use_rsqrt=True,
         mass_in_value=False,
         use_soft_cutoff=False,
     ):
