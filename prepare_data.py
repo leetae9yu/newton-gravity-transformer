@@ -24,33 +24,34 @@ def ensure_data(data_path, url=DEFAULT_URL):
     return data_path
 
 
-def prepare_wikitext103(data_path="data"):
-    """Download and cache WikiText-103-raw-v1 using HuggingFace datasets."""
+def prepare_wikitext(data_path="data", hf_variant="wikitext-2-raw-v1"):
+    """Download and cache a raw WikiText variant using HuggingFace datasets."""
     os.makedirs(data_path, exist_ok=True)
-    print("Downloading WikiText-103-raw-v1 via HuggingFace datasets...")
+    print(f"Downloading {hf_variant} via HuggingFace datasets...")
     from datasets import load_dataset
-    dataset = load_dataset("wikitext", "wikitext-103-raw-v1")
+    dataset = load_dataset("wikitext", hf_variant)
     # Print split sizes
     for split_name in ("train", "validation", "test"):
         num_lines = len(dataset[split_name])
         total_chars = sum(len(line) for line in dataset[split_name]["text"])
         print(f"  {split_name}: {num_lines:,} lines, {total_chars:,} chars")
-    print(f"WikiText-103 downloaded and cached by HuggingFace datasets.")
-    print(f"To pre-encode with tiktoken, run training with --dataset wikitext103 --tokenizer tiktoken")
+    print(f"{hf_variant} downloaded and cached by HuggingFace datasets.")
+    dataset_arg = "wikitext2" if hf_variant == "wikitext-2-raw-v1" else "wikitext103"
+    print(f"To pre-encode with tiktoken, run training with --dataset {dataset_arg} --tokenizer tiktoken")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Prepare training data.")
     parser.add_argument(
         "--dataset",
-        default="shakespeare",
-        choices=["shakespeare", "wikitext103"],
-        help="Dataset to prepare (default: shakespeare).",
+        default="wikitext2",
+        choices=["shakespeare", "wikitext2", "wikitext103"],
+        help="Dataset to prepare (default: wikitext2).",
     )
     parser.add_argument(
         "--data-path",
-        default=os.path.join("data", "input.txt"),
-        help="Destination path for the TinyShakespeare input.txt file.",
+        default=None,
+        help="Cache directory for WikiText or destination file path for TinyShakespeare.",
     )
     parser.add_argument(
         "--url",
@@ -59,10 +60,12 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.dataset == "wikitext103":
-        prepare_wikitext103(data_path="data")
+    if args.dataset == "wikitext2":
+        prepare_wikitext(data_path=args.data_path or "data", hf_variant="wikitext-2-raw-v1")
+    elif args.dataset == "wikitext103":
+        prepare_wikitext(data_path=args.data_path or "data", hf_variant="wikitext-103-raw-v1")
     else:
-        ensure_data(args.data_path, url=args.url)
+        ensure_data(args.data_path or os.path.join("data", "input.txt"), url=args.url)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ Unified data loading module.
 
 Supports:
   - shakespeare: char-level TinyShakespeare (read text → encode → 90/10 split)
+  - wikitext2: WikiText-2-raw-v1 via HuggingFace datasets (train/val/test splits, cached)
   - wikitext103: WikiText-103-raw-v1 via HuggingFace datasets (train/val/test splits, cached)
 """
 
@@ -38,13 +39,13 @@ def _load_shakespeare(tokenizer, data_path):
     }
 
 
-def _load_wikitext103(tokenizer, data_path):
-    """Load WikiText-103-raw-v1 with caching."""
+def _load_wikitext(tokenizer, data_path, hf_variant, cache_prefix, dataset_label):
+    """Load a raw WikiText variant with tokenizer-aware caching."""
     if data_path is None:
         data_path = "data"
     os.makedirs(data_path, exist_ok=True)
 
-    meta_path = os.path.join(data_path, "wikitext103_meta.json")
+    meta_path = os.path.join(data_path, f"{cache_prefix}_meta.json")
     tokenizer_state = tokenizer.save_state()
     tokenizer_type = tokenizer_state.get("type", "unknown")
     fingerprint = _tokenizer_fingerprint(tokenizer)
@@ -65,7 +66,7 @@ def _load_wikitext103(tokenizer, data_path):
     splits = {}
     hf_dataset = None
     for split_name in ("train", "validation", "test"):
-        cache_file = os.path.join(data_path, f"wikitext103_{split_name}.pt")
+        cache_file = os.path.join(data_path, f"{cache_prefix}_{split_name}.pt")
         out_key = "val" if split_name == "validation" else split_name
 
         if cache_valid and os.path.exists(cache_file):
@@ -74,9 +75,9 @@ def _load_wikitext103(tokenizer, data_path):
         else:
             # Download and encode
             if hf_dataset is None:
-                print("Loading WikiText-103-raw-v1 from HuggingFace datasets...")
+                print(f"Loading {dataset_label} from HuggingFace datasets...")
                 from datasets import load_dataset as hf_load_dataset
-                hf_dataset = hf_load_dataset("wikitext", "wikitext-103-raw-v1")
+                hf_dataset = hf_load_dataset("wikitext", hf_variant)
 
             split_data = hf_dataset[split_name]
 
@@ -131,7 +132,21 @@ def load_dataset(dataset_name, tokenizer, data_path=None):
     """
     if dataset_name == "shakespeare":
         return _load_shakespeare(tokenizer, data_path)
+    elif dataset_name == "wikitext2":
+        return _load_wikitext(
+            tokenizer,
+            data_path,
+            hf_variant="wikitext-2-raw-v1",
+            cache_prefix="wikitext2",
+            dataset_label="WikiText-2-raw-v1",
+        )
     elif dataset_name == "wikitext103":
-        return _load_wikitext103(tokenizer, data_path)
+        return _load_wikitext(
+            tokenizer,
+            data_path,
+            hf_variant="wikitext-103-raw-v1",
+            cache_prefix="wikitext103",
+            dataset_label="WikiText-103-raw-v1",
+        )
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
