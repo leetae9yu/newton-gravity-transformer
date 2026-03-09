@@ -16,9 +16,11 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 
 ---
 
-## 프로젝트 포커스: WikiText-103 (~25M)
+## 프로젝트 포커스: WikiText-2 기본 경로, WikiText-103 기록
 
-현재 포커스는 WikiText-103 + BPE-8192 + 약 25M 파라미터 스케일의 스크리닝 실험입니다.
+지금 기본 로컬 벤치마크 경로는 작은 모델과 char-level 반복 실험이 쉬운 WikiText-2를 기준으로 잡습니다.
+
+이 레포에 남아 있는 대규모 스크리닝 기록은 WikiText-103 + BPE-8192 + 약 25M 파라미터 스케일 기준입니다.
 
 - 최소 요약: `reports/w3_25m_summary.md`
 - 전체 스크리닝 아티팩트: `w3_25m_results/results/w3_25m/Summary.md`
@@ -26,9 +28,10 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 
 셰익스피어 데이터셋/체크포인트는 레거시 경로로 두고, 현재 프로젝트에서는 더 이상 적극적으로 사용하지 않습니다.
 
-### 프로젝트 진행 흐름 (TinyShakespeare -> WikiText-103)
+### 프로젝트 진행 흐름 (TinyShakespeare -> WikiText-2 -> WikiText-103)
 
 - 초기 단계는 TinyShakespeare(char-level)를 빠른 프로토타이핑용으로 사용했습니다.
+- 현재 기본 벤치마크 경로는 더 저렴한 반복 실험과 작은 모델 비교를 위해 WikiText-2를 사용합니다.
 - 보관된 5k-step TinyShakespeare 체크포인트 기준 best validation loss는 약 `1.70`, 이후 약 `1.55`까지 개선했습니다.
 - 이후 더 큰 규모 검증을 위해 WikiText-103 (~25M 파라미터 스케일)로 전환했습니다.
 - 앞으로도 모델 규모와 학습 예산을 단계적으로 계속 키워 나갈 계획입니다.
@@ -79,23 +82,21 @@ NGT는 기하(geometric) 스트림을 추가합니다:
 pip install -r requirements.txt
 ```
 
-빠른 시작 (WikiText-103, 15k 스크리닝):
+빠른 시작 (WikiText-2, 기본 소형 벤치마크 경로):
 
 ```bash
-# WikiText-103 다운로드/캐시(HuggingFace datasets)
-python prepare_data.py --dataset wikitext103
+# WikiText-2 다운로드/캐시(HuggingFace datasets)
+python prepare_data.py
 
-# NGT 학습 실행
-python train.py --dataset wikitext103 --data-path data \
-  --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
-  --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
-  --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
-  --use-amp --use-cosine-schedule --warmup-steps 2000 \
-  --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt --run-name w3_25m_ngt
+# NGT 학습 실행 (기본값: --dataset wikitext2, --tokenizer char)
+python train.py --data-path data \
+  --checkpoint-path checkpoints/ngt_wikitext2_char.pt
 
 # 채팅(NGT 전용)
-python chat.py --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt_best.pt
+python chat.py --checkpoint-path checkpoints/ngt_wikitext2_char.pt_best.pt
 ```
+
+이전 대규모 설정으로 되돌리려면 `--dataset wikitext103`과 BPE/tiktoken 토크나이저를 사용하면 됩니다.
 
 체크포인트 정책:
 
@@ -114,7 +115,7 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 
 자주 쓰는 옵션:
 
-- 데이터셋: `--dataset {shakespeare,wikitext103}`, `--data-path ...`
+- 데이터셋: `--dataset {shakespeare,wikitext2,wikitext103}`, `--data-path ...`
 - 토크나이저: `--tokenizer {char,bpe,tiktoken}`
 - BPE 옵션: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - 정규화: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
@@ -125,12 +126,8 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 예시:
 
 ```bash
-python train.py --dataset wikitext103 --data-path data \
-  --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
-  --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
-  --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
-  --use-amp --use-cosine-schedule --warmup-steps 2000 \
-  --checkpoint-path checkpoints/w3_ngt.pt
+python train.py --data-path data \
+  --checkpoint-path checkpoints/ngt_wikitext2_char.pt
 ```
 
 ---
