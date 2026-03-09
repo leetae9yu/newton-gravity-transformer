@@ -86,7 +86,7 @@ Quickstart (WikiText-103, 15k screening):
 python prepare_data.py --dataset wikitext103
 
 # Run NGT training
-python train_shakespeare.py --dataset wikitext103 --data-path data \
+python train.py --dataset wikitext103 --data-path data \
   --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
   --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
   --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
@@ -110,7 +110,7 @@ Python 3.11+ is recommended. CUDA is strongly recommended for training.
 
 ## Training (NGT)
 
-See `python train_shakespeare.py --help` for the full list.
+See `python train.py --help` for the full list.
 
 Common flags:
 
@@ -125,7 +125,7 @@ Common flags:
 Example:
 
 ```bash
-python train_shakespeare.py --dataset wikitext103 --data-path data \
+python train.py --dataset wikitext103 --data-path data \
   --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
   --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
   --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \

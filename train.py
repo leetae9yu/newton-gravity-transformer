@@ -239,7 +239,7 @@ def _apply_preset(args, preset, *default_dicts):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train NGT on TinyShakespeare.")
+    parser = argparse.ArgumentParser(description="Train NGT.")
     parser.add_argument("--dataset", type=str, default="shakespeare",
                         choices=["shakespeare", "wikitext103"],
                         help="Dataset to train on (default: shakespeare)")

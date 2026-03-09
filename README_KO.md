@@ -86,7 +86,7 @@ pip install -r requirements.txt
 python prepare_data.py --dataset wikitext103
 
 # NGT 학습 실행
-python train_shakespeare.py --dataset wikitext103 --data-path data \
+python train.py --dataset wikitext103 --data-path data \
   --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
   --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
   --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
@@ -110,7 +110,7 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 
 ## 학습 (NGT)
 
-전체 옵션은 `python train_shakespeare.py --help`를 참고하세요.
+전체 옵션은 `python train.py --help`를 참고하세요.
 
 자주 쓰는 옵션:
 
@@ -125,7 +125,7 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 예시:
 
 ```bash
-python train_shakespeare.py --dataset wikitext103 --data-path data \
+python train.py --dataset wikitext103 --data-path data \
   --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
   --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
   --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
