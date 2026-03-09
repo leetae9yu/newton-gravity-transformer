@@ -90,7 +90,7 @@ python train.py --dataset wikitext103 --data-path data \
   --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
   --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
   --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
-  --use-amp --use-rsqrt --use-cosine-schedule --warmup-steps 2000 \
+  --use-amp --use-cosine-schedule --warmup-steps 2000 \
   --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt --run-name w3_25m_ngt
 
 # 채팅(NGT 전용)
@@ -119,7 +119,7 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 - BPE 옵션: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - 정규화: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
 - sparsity: `--no-radius-cutoff` 또는 `--use-soft-cutoff`
-- 성능: `--use-rsqrt`, `--use-amp`, `--gradient-accumulation-steps`
+- 성능: rsqrt는 기본값이며, 끄려면 `--no-rsqrt`를 사용하고 추가로 `--use-amp`, `--gradient-accumulation-steps`를 사용할 수 있습니다
 - 스케줄: `--use-cosine-schedule --warmup-steps N`
 
 예시:

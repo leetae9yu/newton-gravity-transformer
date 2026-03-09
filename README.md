@@ -90,7 +90,7 @@ python train.py --dataset wikitext103 --data-path data \
   --tokenizer bpe --bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json \
   --hidden-dim 512 --coord-dim 64 --num-layers 8 --num-heads 8 --mlp-dim 2048 \
   --block-size 512 --batch-size 16 --gradient-accumulation-steps 2 \
-  --use-amp --use-rsqrt --use-cosine-schedule --warmup-steps 2000 \
+  --use-amp --use-cosine-schedule --warmup-steps 2000 \
   --checkpoint-path checkpoints/w3_25m/ngt_mass_in_value.pt --run-name w3_25m_ngt
 
 # Chat (NGT only)
@@ -119,7 +119,7 @@ Common flags:
 - BPE option: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - Regularization: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
 - Sparsity: `--no-radius-cutoff` or `--use-soft-cutoff`
-- Performance: `--use-rsqrt`, `--use-amp`, `--gradient-accumulation-steps`
+- Performance: rsqrt is on by default; use `--no-rsqrt` to disable, plus `--use-amp`, `--gradient-accumulation-steps`
 - Schedule: `--use-cosine-schedule --warmup-steps N`
 
 Example:
