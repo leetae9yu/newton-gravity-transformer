@@ -117,7 +117,6 @@ Common flags:
 - Tokenizers: `--tokenizer {char,bpe,tiktoken}`
 - BPE option: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - Regularization: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
-- Sparsity: `--use-soft-cutoff`
 - Performance: rsqrt is on by default; use `--no-rsqrt` to disable, plus `--use-amp`, `--gradient-accumulation-steps`
 - Schedule: `--use-cosine-schedule --warmup-steps N`
 

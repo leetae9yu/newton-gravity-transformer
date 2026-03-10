@@ -117,7 +117,6 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 - 토크나이저: `--tokenizer {char,bpe,tiktoken}`
 - BPE 옵션: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - 정규화: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
-- sparsity: `--use-soft-cutoff`
 - 성능: rsqrt는 기본값이며, 끄려면 `--no-rsqrt`를 사용하고 추가로 `--use-amp`, `--gradient-accumulation-steps`를 사용할 수 있습니다
 - 스케줄: `--use-cosine-schedule --warmup-steps N`
 
