@@ -43,10 +43,10 @@ val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 | run | 설정 | val loss @15000 | ppl @15000 | best val loss (step) |
 |---|---|---:|---:|---:|
 | vanilla | baseline | 4.5554 | 95.14 | 4.5524 (13500) |
-| ngt_mass_in_value | `--mass-in-value --use-rsqrt` | 4.6635 | 106.01 | 4.6451 (13000) |
-| ngt_no_repulsion | `--no-repulsion --use-rsqrt` | 4.7214 | 112.33 | 4.7214 (15000) |
-| ngt_repulsion_interval_8 | `--repulsion-interval 8 --use-rsqrt` | 4.7889 | 120.17 | 4.7748 (13000) |
-| ngt_default | `--use-rsqrt` | 4.7915 | 120.48 | 4.7762 (13000) |
+| ngt_mass_in_value | `--mass-in-value` | 4.6635 | 106.01 | 4.6451 (13000) |
+| ngt_no_repulsion | `--no-repulsion` | 4.7214 | 112.33 | 4.7214 (15000) |
+| ngt_repulsion_interval_8 | `--repulsion-interval 8` | 4.7889 | 120.17 | 4.7748 (13000) |
+| ngt_default | 기본값 (`rsqrt` 활성화) | 4.7915 | 120.48 | 4.7762 (13000) |
 
 같은 설정(`batch=16`, `accum=2`, `block=512`)에서의 처리량:
 
