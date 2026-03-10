@@ -16,9 +16,9 @@ This repo includes end-to-end training, logging (TensorBoard), checkpointing (`*
 
 ---
 
-## Project focus: WikiText-2 defaults, WikiText-103 history
+## Project focus: WikiText defaults with BPE tokenization
 
-The default local benchmark path now targets WikiText-2 for faster iteration with small models and char-level runs.
+The default local benchmark path now targets WikiText-2 with a fixed BPE tokenizer for faster iteration and cleaner experiment tracking.
 
 Historical larger-scale screening in this repo used WikiText-103 with BPE-8192 and ~25M parameter scale.
 
@@ -26,12 +26,12 @@ Historical larger-scale screening in this repo used WikiText-103 with BPE-8192 a
 - Full screening artifacts: `w3_25m_results/results/w3_25m/Summary.md`
 - Pretrained checkpoints (w3_25m): `https://huggingface.co/leetae9yu/newton-gravity-transformer/tree/main/checkpoints/w3_25m`
 
-Shakespeare dataset/checkpoints are legacy and no longer actively used in this project.
+Shakespeare dataset/checkpoints are legacy and no longer used in this project.
 
 ### Project trajectory (TinyShakespeare -> WikiText-2 -> WikiText-103)
 
-- Initial phase used TinyShakespeare (char-level) as a fast prototyping sandbox.
-- The current default benchmark path uses WikiText-2 for cheaper iteration and easier small-model comparisons.
+- Initial phase used TinyShakespeare as a fast prototyping sandbox.
+- The current default benchmark path uses WikiText-2 with BPE-8192 for cheaper iteration and easier small-model comparisons.
 - In archived 5k-step TinyShakespeare checkpoints, best validation losses reached about `1.70` and later about `1.55`.
 - After that, the project moved to larger-scale screening on WikiText-103 (~25M parameter scale).
 - Going forward, the plan is to keep scaling model capacity and training budget step by step.
@@ -87,15 +87,15 @@ Quickstart (WikiText-2, default small benchmark path):
 # Download/cache WikiText-2 via HuggingFace datasets
 python prepare_data.py
 
-# Run NGT training (defaults: --dataset wikitext2, --tokenizer char)
+# Run NGT training (defaults: WikiText-2 + BPE-8192)
 python train.py --data-path data \
-  --checkpoint-path checkpoints/ngt_wikitext2_char.pt
+  --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt
 
 # Chat (NGT only)
-python chat.py --checkpoint-path checkpoints/ngt_wikitext2_char.pt_best.pt
+python chat.py --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt_best.pt
 ```
 
-For the previous larger-scale setup, switch back to `--dataset wikitext103` and a BPE/tiktoken tokenizer.
+For the previous larger-scale setup, switch to `--dataset wikitext103` with its matching BPE tokenizer path.
 
 Checkpoint policy:
 
@@ -113,9 +113,8 @@ See `python train.py --help` for the full list.
 
 Common flags:
 
-- Dataset: `--dataset {shakespeare,wikitext2,wikitext103}`, `--data-path ...`
-- Tokenizers: `--tokenizer {char,bpe,tiktoken}`
-- BPE option: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
+- Dataset: `--dataset {wikitext2,wikitext103}`, `--data-path ...`
+- Tokenizer: fixed BPE path with `--bpe-vocab-size` and `--tokenizer-path`
 - Regularization: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
 - Performance: gravity scoring uses the rsqrt-based path, plus `--use-amp`, `--gradient-accumulation-steps`
 - Schedule: `--use-cosine-schedule --warmup-steps N`
@@ -124,7 +123,7 @@ Example:
 
 ```bash
 python train.py --data-path data \
-  --checkpoint-path checkpoints/ngt_wikitext2_char.pt
+  --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt
 ```
 
 ---
