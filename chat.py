@@ -1,5 +1,4 @@
 import argparse
-import math
 import os
 
 import torch
@@ -8,17 +7,6 @@ import torch.nn.functional as F
 from common import build_causal_mask
 from ngt_model import NewtonGravityTransformer
 from tokenizer_utils import load_tokenizer
-
-def is_legacy_coord_proj(state_dict, coord_dim, hidden_dim):
-    """
-    Detect older checkpoints where coord_proj_next was Linear(coord_dim, coord_dim).
-    """
-    for name, tensor in state_dict.items():
-        if name.endswith("attn.coord_proj_next.weight"):
-            # Legacy: weight shape [coord_dim, coord_dim]; Current: [coord_dim, hidden_dim]
-            if tensor.shape[1] == coord_dim and tensor.shape[1] != hidden_dim:
-                return True
-    return False
 
 
 @torch.no_grad()
@@ -90,25 +78,7 @@ def main():
             use_soft_cutoff=config.get("use_soft_cutoff", False),
         ).to(device)
 
-        # Handle legacy coord_proj_next shape
-        if is_legacy_coord_proj(state_dict, coord_dim=coord_dim, hidden_dim=hidden_dim):
-            for layer in model.layers:
-                layer.attn.coord_proj_next = torch.nn.Linear(coord_dim, coord_dim).to(device)
-            print("Detected legacy coord_proj_next; swapped to compatible layers.")
-
-        # Load with strict=False to tolerate missing legacy keys
-        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-        if missing_keys:
-            print(f"Missing keys during load (handled with defaults): {missing_keys}")
-        if unexpected_keys:
-            print(f"Unexpected keys ignored during load: {unexpected_keys}")
-
-        # If legacy checkpoint lacks mass embeddings, initialize them to yield mass ~1.0
-        has_mass_weights = any(k.startswith("mass_emb.") for k in state_dict.keys())
-        if not has_mass_weights:
-            neutral_mass = math.log(math.expm1(1.0))  # inverse softplus for target mass=1
-            model.mass_emb.weight.data.fill_(neutral_mass)
-            print("Initialized mass_emb to neutral mass (1.0) for legacy checkpoint.")
+        model.load_state_dict(state_dict)
 
         print("Model type: NGT (Newton Gravity Transformer)")
     else:
