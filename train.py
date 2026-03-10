@@ -203,14 +203,14 @@ def parse_args():
     parser.add_argument("--num-heads", type=int, default=DEFAULT_CONFIG["num_heads"])
     parser.add_argument("--mlp-dim", type=int, default=DEFAULT_CONFIG["mlp_dim"])
     parser.add_argument("--dropout", type=float, default=DEFAULT_CONFIG["dropout"])
-    parser.add_argument("--no-repulsion", action="store_true", default=False,
-                        help="Disable repulsion loss during training")
+    parser.add_argument("--repulsion", action="store_true", default=False,
+                        help="Enable repulsion loss during training")
     parser.add_argument("--mass-in-value", action="store_true", default=False,
                         help="Apply mass to value weighting instead of attention scores")
     parser.add_argument("--lambda-repulsion", type=float, default=0.05,
                         help="Weight for repulsion loss (default: 0.05)")
-    parser.add_argument("--repulsion-interval", type=int, default=1,
-                        help="Compute repulsion loss every N steps (default: 1, i.e. every step)")
+    parser.add_argument("--repulsion-interval", type=int, default=4,
+                        help="Compute repulsion loss every N steps when --repulsion is enabled (default: 4)")
     parser.add_argument("--use-amp", action="store_true", default=False,
                         help="Enable Automatic Mixed Precision (FP16) for faster training on CUDA")
     parser.add_argument("--warmup-steps", type=int, default=0,
@@ -300,7 +300,7 @@ def main():
     vocab_size = tokenizer.vocab_size
 
     use_radius_cutoff = True
-    use_repulsion = not args.no_repulsion
+    use_repulsion = args.repulsion
     mass_in_value = args.mass_in_value
     use_amp = args.use_amp and torch.cuda.is_available()
     if args.use_amp and not torch.cuda.is_available():
@@ -329,8 +329,10 @@ def main():
         run_dir = os.path.join("runs", args.run_name)
     else:
         ablation_parts = []
-        if args.no_repulsion:
-            ablation_parts.append("no_repulsion")
+        if args.repulsion:
+            ablation_parts.append("repulsion")
+            if args.repulsion_interval != 4:
+                ablation_parts.append(f"rep_i{args.repulsion_interval}")
         if args.mass_in_value:
             ablation_parts.append("mass_val")
         ablation_str = "_".join(ablation_parts) if ablation_parts else "default"
