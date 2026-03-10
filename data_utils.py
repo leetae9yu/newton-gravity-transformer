@@ -63,13 +63,12 @@ def _load_wikitext(tokenizer, data_path, hf_variant, cache_prefix, dataset_label
             first = True
             total_chars = 0
             for line in split_data["text"]:
-                if not line or not line.strip():
-                    continue
                 if not first and newline_ids:
                     tok_buf.extend(newline_ids)
                 first = False
                 total_chars += len(line) + 1
-                tok_buf.extend(tokenizer.encode(line))
+                if line:
+                    tok_buf.extend(tokenizer.encode(line))
 
             print(f"Encoding {split_name} split (~{total_chars:,} chars)...")
             np_tokens = np.frombuffer(tok_buf, dtype=np.int32)
