@@ -20,43 +20,32 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 
 현재 활성 코드 경로는 고정 BPE 토크나이저를 쓰는 WikiText-2 단일 경로이며, 대략 `~6M` 규모의 소형 모델을 기준으로 빠른 반복 실험과 안정성 분석을 진행하는 데 초점을 맞춥니다.
 
-중요: 아래 벤치마크 표와 링크된 아티팩트는 과거 코드 버전에서 얻은 기록입니다. 참고 자료로는 유효하지만, 현재 브랜치의 대표 성능으로 간주하면 안 됩니다.
-
-이 레포에 남아 있는 대규모 스크리닝 기록은 WikiText-103 + BPE-8192 + 약 25M 파라미터 스케일 기준이며, 현재의 주 개발 타깃은 아닙니다.
-
-- 최소 요약: `reports/w3_25m_summary.md`
-- 전체 스크리닝 아티팩트: `w3_25m_results/results/w3_25m/Summary.md`
-- 사전학습 체크포인트(w3_25m): `https://huggingface.co/leetae9yu/newton-gravity-transformer/tree/main/checkpoints/w3_25m`
-
 셰익스피어 데이터셋/체크포인트는 레거시 경로이며, 현재 프로젝트에서는 더 이상 사용하지 않습니다.
 
-### 프로젝트 진행 흐름 (TinyShakespeare -> WikiText-103 -> 현재 WikiText-2)
+### 프로젝트 진행 흐름 (TinyShakespeare -> 현재 WikiText-2)
 
 - 초기 단계는 TinyShakespeare를 빠른 프로토타이핑용으로 사용했습니다.
-- 이후 더 큰 규모 검증을 위해 WikiText-103 (~25M 파라미터 스케일)로 전환했습니다.
 - 현재 브랜치는 더 빠른 디버깅과 촘촘한 ablation을 위해 `~6M` 규모의 WikiText-2 경로로 다시 초점을 옮겼습니다.
 - 현재의 핵심 질문은 이 작은 스케일에서도 NGT가 vanilla transformer baseline과 경쟁할 수 있는지 확인하는 것입니다.
 
-### 과거 25M 스크리닝 스냅샷 (w3_25m, seed=42, max_steps=15000)
+### 현재 6M 스냅샷 (WikiText-2, 약 20 epoch)
 
-val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
+현재 활성 브랜치에서 얻은 소형 비교 결과는 다음과 같습니다.
 
-| run | 설정 | val loss @15000 | ppl @15000 | best val loss (step) |
+- 데이터셋: `wikitext2`
+- 토크나이저: `BPE-8192`
+- 컨텍스트 길이: `256`
+- 배치 / accumulation: `16 x 4`
+- 스케줄: cosine + `warmup_steps=100`
+- learning rate: `5e-5`
+- 학습 길이: `3340` step (대략 `~20` epoch)
+
+| 모델 | 설정 | 최종 val loss | 최종 train loss | 소요 시간 |
 |---|---|---:|---:|---:|
-| vanilla | baseline | 4.5554 | 95.14 | 4.5524 (13500) |
-| ngt_mass_in_value | `--mass-in-value` | 4.6635 | 106.01 | 4.6451 (13000) |
-| ngt_no_repulsion | repulsion 비활성화(레거시 실행) | 4.7214 | 112.33 | 4.7214 (15000) |
-| ngt_repulsion_interval_8 | `--repulsion-interval 8` | 4.7889 | 120.17 | 4.7748 (13000) |
-| ngt_default | 기본값 | 4.7915 | 120.48 | 4.7762 (13000) |
+| vanilla | 현재 ~6M baseline | 6.2320 | 6.2048 | 645.3s |
+| new-NGT | 현재 ~6M 브랜치 | 7.9497 | 7.9810 | 3733.5s |
 
-같은 설정(`batch=16`, `accum=2`, `block=512`)에서의 처리량:
-
-- vanilla: ~4.964 steps/s
-- ngt_mass_in_value: ~0.852 steps/s
-- ngt_no_radius: ~0.855 steps/s
-- ngt_default / ngt_no_repulsion(레거시) / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
-
-본 결과는 과거 예산 제약 기반 15k 스크리닝(토크나이즈된 train 토큰 수 가정에 따라 대략 2 epoch 내외)이므로, 현재 코드나 현재 `~6M` 개발 브랜치의 대표 성능이라기보다 방향성 지표로 해석하는 것이 적절합니다.
+현재 기준으로 `~6M` NGT 브랜치는 매칭된 vanilla baseline보다 대략 `5.8배` 느리고, validation loss 기준으로 `+1.7177`만큼 뒤처지고 있습니다.
 
 ---
 
@@ -131,23 +120,6 @@ python train.py --data-path data \
 ```
 
 ---
-
-## 과거 아티팩트 및 시각화 링크
-
-과거 실험 요약/리포트:
-
-- [최소 요약 (`reports/w3_25m_summary.md`)](reports/w3_25m_summary.md)
-- [전체 요약 (`w3_25m_results/results/w3_25m/Summary.md`)](w3_25m_results/results/w3_25m/Summary.md)
-- [Ablation 리포트 (`w3_25m_results/results/w3_25m/report.md`)](w3_25m_results/results/w3_25m/report.md)
-- [결과 CSV (`w3_25m_results/results/w3_25m/results.csv`)](w3_25m_results/results/w3_25m/results.csv)
-
-인터랙티브 HTML 시각화(Plotly 3D PCA, 과거 결과):
-
-- [coords_ngt_default.html](w3_25m_results_latest/results/w3_25m/coords_ngt_default.html)
-- [coords_ngt_mass_in_value.html](w3_25m_results_latest/results/w3_25m/coords_ngt_mass_in_value.html)
-- [coords_ngt_no_radius.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_radius.html)
-- [coords_ngt_no_repulsion.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_repulsion.html) (레거시 파일명)
-- [coords_ngt_repulsion_interval_8.html](w3_25m_results_latest/results/w3_25m/coords_ngt_repulsion_interval_8.html)
 
 TensorBoard:
 

@@ -20,43 +20,32 @@ This repo currently focuses on end-to-end training, logging (TensorBoard), check
 
 The active code path now targets a small `~6M`-scale setup on WikiText-2 with a fixed BPE tokenizer. The goal of the current branch is fast iteration, stability debugging, and clean baseline comparison against a vanilla transformer under the same data path.
 
-Important: the benchmark tables and linked artifacts below are historical results from earlier code versions. They are useful as reference only, not as the current headline result.
-
-Historical larger-scale screening in this repo used WikiText-103 with BPE-8192 and ~25M parameter scale, but that is no longer the main development target.
-
-- Minimal summary: `reports/w3_25m_summary.md`
-- Full screening artifacts: `w3_25m_results/results/w3_25m/Summary.md`
-- Pretrained checkpoints (w3_25m): `https://huggingface.co/leetae9yu/newton-gravity-transformer/tree/main/checkpoints/w3_25m`
-
 Shakespeare dataset/checkpoints are legacy and no longer used in this project.
 
-### Project trajectory (TinyShakespeare -> WikiText-103 -> current WikiText-2)
+### Project trajectory (TinyShakespeare -> current WikiText-2)
 
 - Initial phase used TinyShakespeare as a fast prototyping sandbox.
-- The project then moved to larger-scale screening on WikiText-103 (~25M parameter scale).
 - The current branch is intentionally refocused on a much smaller `~6M` WikiText-2 setup for faster debugging and tighter ablation loops.
 - The main near-term goal is to understand whether the current NGT formulation can stay competitive against a vanilla transformer baseline at this smaller scale.
 
-### Historical 25M screening snapshot (w3_25m, seed=42, max_steps=15000)
+### Current 6M snapshot (WikiText-2, ~20 epochs)
 
-Validation loss is cross-entropy; perplexity is `exp(loss)`.
+Current small-scale comparison on the active branch:
 
-| run | config | val loss @15000 | ppl @15000 | best val loss (step) |
+- Dataset: `wikitext2`
+- Tokenizer: `BPE-8192`
+- Context length: `256`
+- Batch / accumulation: `16 x 4`
+- Schedule: cosine with `warmup_steps=100`
+- Learning rate: `5e-5`
+- Training horizon: `3340` steps (roughly `~20` epochs)
+
+| model | config | final val loss | final train loss | elapsed |
 |---|---|---:|---:|---:|
-| vanilla | baseline | 4.5554 | 95.14 | 4.5524 (13500) |
-| ngt_mass_in_value | `--mass-in-value` | 4.6635 | 106.01 | 4.6451 (13000) |
-| ngt_no_repulsion | repulsion disabled (legacy run) | 4.7214 | 112.33 | 4.7214 (15000) |
-| ngt_repulsion_interval_8 | `--repulsion-interval 8` | 4.7889 | 120.17 | 4.7748 (13000) |
-| ngt_default | default | 4.7915 | 120.48 | 4.7762 (13000) |
+| vanilla | current ~6M baseline | 6.2320 | 6.2048 | 645.3s |
+| new-NGT | current ~6M branch | 7.9497 | 7.9810 | 3733.5s |
 
-Throughput on the same settings (`batch=16`, `accum=2`, `block=512`):
-
-- vanilla: ~4.964 steps/s
-- ngt_mass_in_value: ~0.852 steps/s
-- ngt_no_radius: ~0.855 steps/s
-- ngt_default / ngt_no_repulsion (legacy) / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
-
-This is a budget-constrained historical screening run (15k steps, roughly about 2 epochs depending on tokenized train-set size), so treat results as directional rather than representative of the current code or the current ~6M development branch.
+At the moment, the current `~6M` NGT branch is roughly `5.8x` slower than the matched vanilla baseline and underperforms it by `+1.7177` validation-loss points.
 
 ---
 
@@ -131,23 +120,6 @@ python train.py --data-path data \
 ```
 
 ---
-
-## Historical artifacts and visualization links
-
-Summary/report artifacts from older experiment runs:
-
-- [Minimal summary (`reports/w3_25m_summary.md`)](reports/w3_25m_summary.md)
-- [Full summary (`w3_25m_results/results/w3_25m/Summary.md`)](w3_25m_results/results/w3_25m/Summary.md)
-- [Ablation report (`w3_25m_results/results/w3_25m/report.md`)](w3_25m_results/results/w3_25m/report.md)
-- [Results CSV (`w3_25m_results/results/w3_25m/results.csv`)](w3_25m_results/results/w3_25m/results.csv)
-
-Interactive HTML visualizations (Plotly 3D PCA, historical):
-
-- [coords_ngt_default.html](w3_25m_results_latest/results/w3_25m/coords_ngt_default.html)
-- [coords_ngt_mass_in_value.html](w3_25m_results_latest/results/w3_25m/coords_ngt_mass_in_value.html)
-- [coords_ngt_no_radius.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_radius.html)
-- [coords_ngt_no_repulsion.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_repulsion.html) (legacy filename)
-- [coords_ngt_repulsion_interval_8.html](w3_25m_results_latest/results/w3_25m/coords_ngt_repulsion_interval_8.html)
 
 TensorBoard:
 
