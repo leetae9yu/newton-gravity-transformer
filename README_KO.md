@@ -46,7 +46,7 @@ val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 | ngt_mass_in_value | `--mass-in-value` | 4.6635 | 106.01 | 4.6451 (13000) |
 | ngt_no_repulsion | `--no-repulsion` | 4.7214 | 112.33 | 4.7214 (15000) |
 | ngt_repulsion_interval_8 | `--repulsion-interval 8` | 4.7889 | 120.17 | 4.7748 (13000) |
-| ngt_default | 기본값 (`rsqrt` 활성화) | 4.7915 | 120.48 | 4.7762 (13000) |
+| ngt_default | 기본값 | 4.7915 | 120.48 | 4.7762 (13000) |
 
 같은 설정(`batch=16`, `accum=2`, `block=512`)에서의 처리량:
 
@@ -68,7 +68,7 @@ NGT는 기하(geometric) 스트림을 추가합니다:
 - 각 토큰은 hidden state `h`(semantic)와 좌표 `z`(geometric)를 가집니다.
 - 각 토큰은 학습되는 질량 `m`을 가지며 `Softplus`로 양수를 보장합니다.
 - 어텐션 점수는 `z` 공간의 거리(및 질량 상호작용)에 의해 결정됩니다.
-- radius cutoff(하드/소프트)로 거리 기반 sparsity를 학습할 수 있습니다.
+- radius cutoff로 거리 기반 sparsity를 학습할 수 있습니다.
 - mass 기반 repulsion regularizer로 좌표 collapse를 억제합니다.
 
 ---
@@ -117,7 +117,7 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 - 토크나이저: `--tokenizer {char,bpe,tiktoken}`
 - BPE 옵션: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - 정규화: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
-- 성능: rsqrt는 기본값이며, 끄려면 `--no-rsqrt`를 사용하고 추가로 `--use-amp`, `--gradient-accumulation-steps`를 사용할 수 있습니다
+- 성능: gravity score는 rsqrt 기반 경로를 사용하며, 추가로 `--use-amp`, `--gradient-accumulation-steps`를 사용할 수 있습니다
 - 스케줄: `--use-cosine-schedule --warmup-steps N`
 
 예시:

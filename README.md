@@ -46,7 +46,7 @@ Validation loss is cross-entropy; perplexity is `exp(loss)`.
 | ngt_mass_in_value | `--mass-in-value` | 4.6635 | 106.01 | 4.6451 (13000) |
 | ngt_no_repulsion | `--no-repulsion` | 4.7214 | 112.33 | 4.7214 (15000) |
 | ngt_repulsion_interval_8 | `--repulsion-interval 8` | 4.7889 | 120.17 | 4.7748 (13000) |
-| ngt_default | default (`rsqrt` on) | 4.7915 | 120.48 | 4.7762 (13000) |
+| ngt_default | default | 4.7915 | 120.48 | 4.7762 (13000) |
 
 Throughput on the same settings (`batch=16`, `accum=2`, `block=512`):
 
@@ -68,7 +68,7 @@ NGT introduces a geometric stream:
 - Each token has a hidden state `h` (semantic stream) and coordinate `z` (geometric stream)
 - Each token has a learned mass `m` (kept positive via `Softplus`)
 - Attention scores depend on distance in `z` space (and mass interaction), not dot products
-- Optional radius cutoff provides learned sparsity (hard or soft)
+- Optional radius cutoff provides learned sparsity
 - A mass-based repulsion regularizer discourages coordinate collapse
 
 ---
@@ -117,7 +117,7 @@ Common flags:
 - Tokenizers: `--tokenizer {char,bpe,tiktoken}`
 - BPE option: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - Regularization: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
-- Performance: rsqrt is on by default; use `--no-rsqrt` to disable, plus `--use-amp`, `--gradient-accumulation-steps`
+- Performance: gravity scoring uses the rsqrt-based path, plus `--use-amp`, `--gradient-accumulation-steps`
 - Schedule: `--use-cosine-schedule --warmup-steps N`
 
 Example:
