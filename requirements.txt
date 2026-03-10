@@ -7,5 +7,4 @@ scikit-learn
 pillow
 plotly
 tokenizers
-tiktoken
 datasets
