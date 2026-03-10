@@ -11,6 +11,7 @@ class GravityAttention(nn.Module):
     Features:
     - Mass-based attention: Score = -γ × (m_i × m_j) / (dist² + ε)
     - Learnable radius sparse attention: masks pairs where dist² > radius²
+    - Fixed sparse causal pattern: local window + selected far links
     """
     def __init__(
         self,
@@ -39,6 +40,8 @@ class GravityAttention(nn.Module):
         
         self.head_dim = hidden_dim // num_heads
         assert self.head_dim * num_heads == hidden_dim, "hidden_dim must be divisible by num_heads"
+        self.local_window = 64
+        self.far_offsets = (96, 128, 192, 256)
 
         self.v_proj = nn.Linear(hidden_dim, hidden_dim)
         self.coord_proj_attn = nn.Linear(coord_dim, num_heads * head_coord_dim)
@@ -55,23 +58,37 @@ class GravityAttention(nn.Module):
         self.softplus = nn.Softplus()
         self.dropout = nn.Dropout(dropout)
 
+    def _build_sparse_neighbors(self, seq_len, device):
+        positions = torch.arange(seq_len, device=device)
+        local_offsets = torch.arange(self.local_window, -1, -1, device=device)
+        far_offsets = torch.tensor(self.far_offsets, device=device)
+        offsets = torch.cat((local_offsets, far_offsets), dim=0)
+        neighbor_indices = positions.unsqueeze(1) - offsets.unsqueeze(0)
+        valid_mask = neighbor_indices >= 0
+        neighbor_indices = neighbor_indices.clamp_min(0).long()
+        return neighbor_indices, valid_mask
+
     def forward(self, hidden_states, coordinates, mass=None, mask=None, return_stats=False, return_attn=False):
         batch_size, seq_len, _ = hidden_states.size()
+        neighbor_indices, sparse_pattern_mask = self._build_sparse_neighbors(seq_len, hidden_states.device)
 
         # Value Projection
         value = self.v_proj(hidden_states).view(batch_size, seq_len, self.num_heads, self.head_dim)
         value = value.transpose(1, 2)
+        selected_value = value[:, :, neighbor_indices, :]
 
         # Coordinate Projection for Attention
         z_heads = self.coord_proj_attn(coordinates)
         z_heads = z_heads.view(batch_size, seq_len, self.num_heads, self.head_coord_dim)
         z_heads = z_heads.transpose(1, 2)
+        query_z = z_heads.unsqueeze(3)
+        selected_z = z_heads[:, :, neighbor_indices, :]
 
-        # Vectorized Distance Calculation: ||z_i - z_j||^2
-        # Avoid materializing the full (B, H, L, L, C) diff tensor.
-        z_norm_sq = (z_heads * z_heads).sum(dim=-1, keepdim=True)
-        squared_dist = z_norm_sq + z_norm_sq.transpose(-1, -2)
-        squared_dist = squared_dist - 2.0 * torch.matmul(z_heads, z_heads.transpose(-1, -2))
+        # Sparse vectorized distance calculation: ||z_i - z_j||^2 over selected pairs only.
+        query_norm_sq = (query_z * query_z).sum(dim=-1)
+        selected_norm_sq = (selected_z * selected_z).sum(dim=-1)
+        pairwise_dot = (query_z * selected_z).sum(dim=-1)
+        squared_dist = query_norm_sq + selected_norm_sq - 2.0 * pairwise_dot
         squared_dist = squared_dist.clamp_min(0.0)
 
         # Learnable parameters
@@ -93,15 +110,17 @@ class GravityAttention(nn.Module):
         if mass is not None and not self.mass_in_value:
             # Default: mass affects "who to attend to"
             mass_squeezed = mass.squeeze(-1)  # [B, L]
-            mass_products = mass_squeezed.unsqueeze(-1) * mass_squeezed.unsqueeze(-2)  # [B, L, L]
-            mass_products = mass_products.unsqueeze(1)  # [B, 1, L, L]
+            selected_mass = mass_squeezed[:, neighbor_indices]
+            mass_products = mass_squeezed.unsqueeze(-1) * selected_mass  # [B, L, K]
+            mass_products = mass_products.unsqueeze(1)  # [B, 1, L, K]
             attn_scores = base_score * mass_products
         else:
             attn_scores = base_score
 
         if mass is not None and self.mass_in_value:
             # Mass as "broadcasting power": heavier tokens send more information
-            value = value * mass.unsqueeze(1)  # [B, 1, L, 1] broadcasts with [B, H, L, D]
+            selected_mass = mass[:, neighbor_indices, :]
+            selected_value = selected_value * selected_mass.unsqueeze(1)
 
         # Sparse attention: radius-based cutoff
         if self.use_radius_cutoff:
@@ -115,9 +134,12 @@ class GravityAttention(nn.Module):
                 attn_scores = attn_scores.masked_fill(sparse_mask, torch.finfo(attn_scores.dtype).min)
 
         # Apply causal/padding mask if provided
+        attn_scores = attn_scores.masked_fill(~sparse_pattern_mask.view(1, 1, seq_len, -1), torch.finfo(attn_scores.dtype).min)
         if mask is not None:
             mask = mask.to(dtype=torch.bool, device=attn_scores.device)
-            attn_scores = attn_scores.masked_fill(~mask, torch.finfo(attn_scores.dtype).min)
+            gather_index = neighbor_indices.view(1, 1, seq_len, -1).expand(mask.size(0), mask.size(1), -1, -1)
+            selected_mask = torch.gather(mask, -1, gather_index)
+            attn_scores = attn_scores.masked_fill(~selected_mask, torch.finfo(attn_scores.dtype).min)
 
         # Softmax normalization
         # Pre-masking with dtype min already ensures masked positions get ~0 probability,
@@ -149,7 +171,7 @@ class GravityAttention(nn.Module):
             }
 
         attn_weights = self.dropout(attn_weights)
-        attn_output = torch.matmul(attn_weights, value)
+        attn_output = (attn_weights.unsqueeze(-1) * selected_value).sum(dim=-2)
 
         # Finalize Outputs
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_dim)
