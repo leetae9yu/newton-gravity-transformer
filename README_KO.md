@@ -18,7 +18,7 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 
 ## 프로젝트 포커스: BPE 토크나이저 기반 WikiText 기본 경로
 
-지금 기본 로컬 벤치마크 경로는 고정 BPE 토크나이저를 쓰는 WikiText-2를 기준으로 잡습니다.
+현재 활성 코드 경로는 고정 BPE 토크나이저를 쓰는 WikiText-2 단일 경로로 구성되어 있습니다.
 
 중요: 아래 벤치마크 표와 링크된 아티팩트는 과거 코드 버전에서 얻은 기록입니다. 최근 tokenizer / repulsion / training path 변경 이후에는 아직 현재 코드 기준 재실험을 진행하지 못했습니다.
 
@@ -95,7 +95,7 @@ python train.py --data-path data \
 
 ```
 
-이전 대규모 설정으로 가려면 `--dataset wikitext103`과 그에 맞는 BPE 토크나이저 경로를 사용하면 됩니다.
+현재 학습 경로는 WikiText-2로 고정되어 있습니다.
 
 체크포인트 정책:
 
@@ -113,7 +113,7 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 
 자주 쓰는 옵션:
 
-- 데이터셋: `--dataset {wikitext2,wikitext103}`, `--data-path ...`
+- 데이터셋: `--dataset wikitext2`, `--data-path ...`
 - 토크나이저: 고정 BPE 경로 (`--bpe-vocab-size`, `--tokenizer-path`)
 - 정규화: `--repulsion`, `--lambda-repulsion`, `--repulsion-interval` (`--repulsion` 사용 시 기본값 `4`)
 - 성능: gravity score는 rsqrt 기반 경로를 사용하며, 추가로 `--use-amp`, `--gradient-accumulation-steps`를 사용할 수 있습니다

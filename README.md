@@ -18,7 +18,7 @@ This repo currently focuses on end-to-end training, logging (TensorBoard), check
 
 ## Project focus: WikiText defaults with BPE tokenization
 
-The default local benchmark path now targets WikiText-2 with a fixed BPE tokenizer for faster iteration and cleaner experiment tracking.
+The active code path now targets WikiText-2 only, with a fixed BPE tokenizer for faster iteration and cleaner experiment tracking.
 
 Important: the benchmark tables and linked artifacts below are historical results from earlier code versions. After the recent tokenizer / repulsion / training-path changes, this codebase has not yet been re-benchmarked.
 
@@ -95,7 +95,7 @@ python train.py --data-path data \
 
 ```
 
-For the previous larger-scale setup, switch to `--dataset wikitext103` with its matching BPE tokenizer path.
+The current training path is fixed to WikiText-2.
 
 Checkpoint policy:
 
@@ -113,7 +113,7 @@ See `python train.py --help` for the full list.
 
 Common flags:
 
-- Dataset: `--dataset {wikitext2,wikitext103}`, `--data-path ...`
+- Dataset: `--dataset wikitext2`, `--data-path ...`
 - Tokenizer: fixed BPE path with `--bpe-vocab-size` and `--tokenizer-path`
 - Regularization: `--repulsion`, `--lambda-repulsion`, `--repulsion-interval` (`4` by default when enabled)
 - Performance: gravity scoring uses the rsqrt-based path, plus `--use-amp`, `--gradient-accumulation-steps`
