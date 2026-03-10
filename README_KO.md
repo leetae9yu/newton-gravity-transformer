@@ -16,13 +16,13 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 
 ---
 
-## 프로젝트 포커스: BPE 토크나이저 기반 WikiText 기본 경로
+## 프로젝트 포커스: 현재 ~6M WikiText-2 경로
 
-현재 활성 코드 경로는 고정 BPE 토크나이저를 쓰는 WikiText-2 단일 경로로 구성되어 있습니다.
+현재 활성 코드 경로는 고정 BPE 토크나이저를 쓰는 WikiText-2 단일 경로이며, 대략 `~6M` 규모의 소형 모델을 기준으로 빠른 반복 실험과 안정성 분석을 진행하는 데 초점을 맞춥니다.
 
-중요: 아래 벤치마크 표와 링크된 아티팩트는 과거 코드 버전에서 얻은 기록입니다. 최근 tokenizer / repulsion / training path 변경 이후에는 아직 현재 코드 기준 재실험을 진행하지 못했습니다.
+중요: 아래 벤치마크 표와 링크된 아티팩트는 과거 코드 버전에서 얻은 기록입니다. 참고 자료로는 유효하지만, 현재 브랜치의 대표 성능으로 간주하면 안 됩니다.
 
-이 레포에 남아 있는 대규모 스크리닝 기록은 WikiText-103 + BPE-8192 + 약 25M 파라미터 스케일 기준입니다.
+이 레포에 남아 있는 대규모 스크리닝 기록은 WikiText-103 + BPE-8192 + 약 25M 파라미터 스케일 기준이며, 현재의 주 개발 타깃은 아닙니다.
 
 - 최소 요약: `reports/w3_25m_summary.md`
 - 전체 스크리닝 아티팩트: `w3_25m_results/results/w3_25m/Summary.md`
@@ -30,15 +30,14 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 
 셰익스피어 데이터셋/체크포인트는 레거시 경로이며, 현재 프로젝트에서는 더 이상 사용하지 않습니다.
 
-### 프로젝트 진행 흐름 (TinyShakespeare -> WikiText-2 -> WikiText-103)
+### 프로젝트 진행 흐름 (TinyShakespeare -> WikiText-103 -> 현재 WikiText-2)
 
 - 초기 단계는 TinyShakespeare를 빠른 프로토타이핑용으로 사용했습니다.
-- 현재 기본 벤치마크 경로는 BPE-8192 기반 WikiText-2를 사용합니다.
-- 보관된 5k-step TinyShakespeare 체크포인트 기준 best validation loss는 약 `1.70`, 이후 약 `1.55`까지 개선했습니다.
 - 이후 더 큰 규모 검증을 위해 WikiText-103 (~25M 파라미터 스케일)로 전환했습니다.
-- 앞으로도 모델 규모와 학습 예산을 단계적으로 계속 키워 나갈 계획입니다.
+- 현재 브랜치는 더 빠른 디버깅과 촘촘한 ablation을 위해 `~6M` 규모의 WikiText-2 경로로 다시 초점을 옮겼습니다.
+- 현재의 핵심 질문은 이 작은 스케일에서도 NGT가 vanilla transformer baseline과 경쟁할 수 있는지 확인하는 것입니다.
 
-### 과거 스크리닝 스냅샷 (w3_25m, seed=42, max_steps=15000)
+### 과거 25M 스크리닝 스냅샷 (w3_25m, seed=42, max_steps=15000)
 
 val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 
@@ -57,7 +56,7 @@ val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 - ngt_no_radius: ~0.855 steps/s
 - ngt_default / ngt_no_repulsion(레거시) / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
 
-본 결과는 과거 예산 제약 기반 15k 스크리닝(토크나이즈된 train 토큰 수 가정에 따라 대략 2 epoch 내외)이므로, 현재 코드의 대표 성능이라기보다 방향성 지표로 해석하는 것이 적절합니다.
+본 결과는 과거 예산 제약 기반 15k 스크리닝(토크나이즈된 train 토큰 수 가정에 따라 대략 2 epoch 내외)이므로, 현재 코드나 현재 `~6M` 개발 브랜치의 대표 성능이라기보다 방향성 지표로 해석하는 것이 적절합니다.
 
 ---
 
@@ -83,19 +82,19 @@ NGT는 기하(geometric) 스트림을 추가합니다:
 pip install -r requirements.txt
 ```
 
-빠른 시작 (WikiText-2, 기본 소형 벤치마크 경로):
+빠른 시작 (WikiText-2, 현재 ~6M 벤치마크 경로):
 
 ```bash
 # WikiText-2 다운로드/캐시(HuggingFace datasets)
 python prepare_data.py
 
-# NGT 학습 실행 (기본값: WikiText-2 + BPE-8192)
+# NGT 학습 실행 (기본값: WikiText-2 + BPE-8192, ~6M 경로)
 python train.py --data-path data \
   --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt
 
 ```
 
-현재 학습 경로는 WikiText-2로 고정되어 있습니다.
+현재 학습 경로는 WikiText-2로 고정되어 있으며, 대략 `~6M` 모델 스케일에 맞춰 실험이 진행됩니다.
 
 체크포인트 정책:
 
@@ -107,9 +106,9 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 
 ---
 
-## 학습 (NGT)
+## 학습 (현재 브랜치)
 
-전체 옵션은 `python train.py --help`를 참고하세요.
+전체 옵션은 `python train.py --help`를 참고하고, 동일 경로의 vanilla baseline은 `python train_vanilla.py --help`를 참고하세요.
 
 자주 쓰는 옵션:
 
@@ -118,6 +117,11 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 - 정규화: `--repulsion`, `--lambda-repulsion`, `--repulsion-interval` (`--repulsion` 사용 시 기본값 `4`)
 - 성능: gravity score는 rsqrt 기반 경로를 사용하며, 추가로 `--use-amp`, `--gradient-accumulation-steps`를 사용할 수 있습니다
 - 스케줄: `--use-cosine-schedule --warmup-steps N`
+
+현재 baseline 비교 실험은 다음 두 경로를 기준으로 합니다:
+
+- NGT: `python train.py ...`
+- Vanilla baseline: `python train_vanilla.py ...`
 
 예시:
 

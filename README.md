@@ -16,13 +16,13 @@ This repo currently focuses on end-to-end training, logging (TensorBoard), check
 
 ---
 
-## Project focus: WikiText defaults with BPE tokenization
+## Project focus: current ~6M WikiText-2 path
 
-The active code path now targets WikiText-2 only, with a fixed BPE tokenizer for faster iteration and cleaner experiment tracking.
+The active code path now targets a small `~6M`-scale setup on WikiText-2 with a fixed BPE tokenizer. The goal of the current branch is fast iteration, stability debugging, and clean baseline comparison against a vanilla transformer under the same data path.
 
-Important: the benchmark tables and linked artifacts below are historical results from earlier code versions. After the recent tokenizer / repulsion / training-path changes, this codebase has not yet been re-benchmarked.
+Important: the benchmark tables and linked artifacts below are historical results from earlier code versions. They are useful as reference only, not as the current headline result.
 
-Historical larger-scale screening in this repo used WikiText-103 with BPE-8192 and ~25M parameter scale.
+Historical larger-scale screening in this repo used WikiText-103 with BPE-8192 and ~25M parameter scale, but that is no longer the main development target.
 
 - Minimal summary: `reports/w3_25m_summary.md`
 - Full screening artifacts: `w3_25m_results/results/w3_25m/Summary.md`
@@ -30,15 +30,14 @@ Historical larger-scale screening in this repo used WikiText-103 with BPE-8192 a
 
 Shakespeare dataset/checkpoints are legacy and no longer used in this project.
 
-### Project trajectory (TinyShakespeare -> WikiText-2 -> WikiText-103)
+### Project trajectory (TinyShakespeare -> WikiText-103 -> current WikiText-2)
 
 - Initial phase used TinyShakespeare as a fast prototyping sandbox.
-- The current default benchmark path uses WikiText-2 with BPE-8192 for cheaper iteration and easier small-model comparisons.
-- In archived 5k-step TinyShakespeare checkpoints, best validation losses reached about `1.70` and later about `1.55`.
-- After that, the project moved to larger-scale screening on WikiText-103 (~25M parameter scale).
-- Going forward, the plan is to keep scaling model capacity and training budget step by step.
+- The project then moved to larger-scale screening on WikiText-103 (~25M parameter scale).
+- The current branch is intentionally refocused on a much smaller `~6M` WikiText-2 setup for faster debugging and tighter ablation loops.
+- The main near-term goal is to understand whether the current NGT formulation can stay competitive against a vanilla transformer baseline at this smaller scale.
 
-### Historical screening snapshot (w3_25m, seed=42, max_steps=15000)
+### Historical 25M screening snapshot (w3_25m, seed=42, max_steps=15000)
 
 Validation loss is cross-entropy; perplexity is `exp(loss)`.
 
@@ -57,7 +56,7 @@ Throughput on the same settings (`batch=16`, `accum=2`, `block=512`):
 - ngt_no_radius: ~0.855 steps/s
 - ngt_default / ngt_no_repulsion (legacy) / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
 
-This is a budget-constrained historical screening run (15k steps, roughly about 2 epochs depending on tokenized train-set size), so treat results as directional rather than representative of the current code.
+This is a budget-constrained historical screening run (15k steps, roughly about 2 epochs depending on tokenized train-set size), so treat results as directional rather than representative of the current code or the current ~6M development branch.
 
 ---
 
@@ -83,19 +82,19 @@ Install:
 pip install -r requirements.txt
 ```
 
-Quickstart (WikiText-2, default small benchmark path):
+Quickstart (WikiText-2, current ~6M benchmark path):
 
 ```bash
 # Download/cache WikiText-2 via HuggingFace datasets
 python prepare_data.py
 
-# Run NGT training (defaults: WikiText-2 + BPE-8192)
+# Run NGT training (defaults: WikiText-2 + BPE-8192, ~6M path)
 python train.py --data-path data \
   --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt
 
 ```
 
-The current training path is fixed to WikiText-2.
+The current training path is fixed to WikiText-2 and tuned around the current ~6M model scale.
 
 Checkpoint policy:
 
@@ -107,9 +106,9 @@ Python 3.11+ is recommended. CUDA is strongly recommended for training.
 
 ---
 
-## Training (NGT)
+## Training (current branch)
 
-See `python train.py --help` for the full list.
+See `python train.py --help` for the full NGT training options and `python train_vanilla.py --help` for the matched vanilla baseline path.
 
 Common flags:
 
@@ -118,6 +117,11 @@ Common flags:
 - Regularization: `--repulsion`, `--lambda-repulsion`, `--repulsion-interval` (`4` by default when enabled)
 - Performance: gravity scoring uses the rsqrt-based path, plus `--use-amp`, `--gradient-accumulation-steps`
 - Schedule: `--use-cosine-schedule --warmup-steps N`
+
+Current baseline comparison work uses:
+
+- NGT: `python train.py ...`
+- Vanilla baseline: `python train_vanilla.py ...`
 
 Example:
 
