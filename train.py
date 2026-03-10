@@ -20,11 +20,11 @@ from tokenizer_utils import (
 
 def get_batch(data, block_size, batch_size, device):
     max_start = len(data) - block_size - 1
-    if max_start <= 0:
+    if max_start < 0:
         raise ValueError(
             f"Dataset too small for block_size={block_size} (len={len(data)})."
         )
-    ix = torch.randint(0, max_start, (batch_size,))
+    ix = torch.randint(0, max_start + 1, (batch_size,))
     x = torch.stack([data[i : i + block_size] for i in ix])
     y = torch.stack([data[i + 1 : i + block_size + 1] for i in ix])
     x = x.to(device)
@@ -154,7 +154,7 @@ def parse_args():
                         help="Use cosine annealing LR schedule (with optional warmup)")
     parser.add_argument("--bpe-vocab-size", type=int, default=DEFAULT_CONFIG["bpe_vocab_size"],
                         help="BPE vocabulary size")
-    parser.add_argument("--tokenizer-path", type=str, default=None,
+    parser.add_argument("--tokenizer-path", type=str, default=DEFAULT_CONFIG["tokenizer_path"],
                         help="Path to BPE tokenizer state JSON to load/save for reproducibility")
     parser.add_argument("--run-name", type=str, default=None,
                         help="Custom TensorBoard run directory name (default: auto-generated)")
@@ -187,6 +187,12 @@ def main():
     vis_interval = args.vis_interval if args.vis_interval is not None else eval_interval
     learning_rate = args.learning_rate
     grad_clip = args.grad_clip
+    hidden_dim = args.hidden_dim
+    coord_dim = args.coord_dim
+    num_layers = args.num_layers
+    num_heads = args.num_heads
+    mlp_dim = args.mlp_dim
+    dropout = args.dropout
     
     # Validate numeric arguments early so invalid runs fail fast.
     if batch_size <= 0:
@@ -195,6 +201,16 @@ def main():
         raise ValueError(f"--block-size must be > 0, got {block_size}")
     if max_steps <= 0:
         raise ValueError(f"--max-steps must be > 0, got {max_steps}")
+    if hidden_dim <= 0:
+        raise ValueError(f"--hidden-dim must be > 0, got {hidden_dim}")
+    if coord_dim <= 0:
+        raise ValueError(f"--coord-dim must be > 0, got {coord_dim}")
+    if num_layers <= 0:
+        raise ValueError(f"--num-layers must be > 0, got {num_layers}")
+    if num_heads <= 0:
+        raise ValueError(f"--num-heads must be > 0, got {num_heads}")
+    if mlp_dim <= 0:
+        raise ValueError(f"--mlp-dim must be > 0, got {mlp_dim}")
     if eval_interval <= 0:
         raise ValueError(f"--eval-interval must be > 0, got {eval_interval}")
     if eval_iters <= 0:
@@ -204,8 +220,14 @@ def main():
         vis_interval = None
     if learning_rate <= 0:
         raise ValueError(f"--learning-rate must be > 0, got {learning_rate}")
+    if not (0.0 <= dropout < 1.0):
+        raise ValueError(f"--dropout must be in [0, 1), got {dropout}")
     if grad_clip <= 0:
         raise ValueError(f"--grad-clip must be > 0, got {grad_clip}")
+    if hidden_dim % num_heads != 0:
+        raise ValueError(
+            f"--hidden-dim must be divisible by --num-heads, got hidden_dim={hidden_dim}, num_heads={num_heads}"
+        )
     if args.gradient_accumulation_steps <= 0:
         raise ValueError(
             f"--gradient-accumulation-steps must be > 0, got {args.gradient_accumulation_steps}"
@@ -218,13 +240,6 @@ def main():
     repulsion_interval = args.repulsion_interval
     if repulsion_interval <= 0:
         raise ValueError(f"--repulsion-interval must be > 0, got {repulsion_interval}")
-
-    hidden_dim = args.hidden_dim
-    coord_dim = args.coord_dim
-    num_layers = args.num_layers
-    num_heads = args.num_heads
-    mlp_dim = args.mlp_dim
-    dropout = args.dropout
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -313,23 +328,32 @@ def main():
         os.makedirs(checkpoint_dir, exist_ok=True)
     t0 = time.time()
     optimizer.zero_grad(set_to_none=True)
-    z = None
-    m = None
 
     for micro_step in range(max_steps * accum_steps):
         x, y = get_batch(train_data, block_size, batch_size, device)
         effective_step = (micro_step + 1) // accum_steps  # 1-based
         is_accum_boundary = (micro_step + 1) % accum_steps == 0
+        needs_vis = bool(
+            vis_interval
+            and vis_interval > 0
+            and is_accum_boundary
+            and effective_step % vis_interval == 0
+        )
+        z = None
+        m = None
 
         with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             compute_rep = use_repulsion and (effective_step % repulsion_interval == 0) if is_accum_boundary else False
             if use_repulsion:
-                logits, z, m = model(x, mask=mask, return_last_coords=True)
+                if compute_rep or needs_vis:
+                    logits, z, m = model(x, mask=mask, return_last_coords=True)
+                else:
+                    logits = model(x, mask=mask)
                 task_loss = criterion(logits.view(-1, vocab_size), y.view(-1))
                 if compute_rep:
                     rep_loss = compute_repulsion_loss(z, mass=m)
                     rep_loss_item = float(rep_loss.detach())
-                    loss = (task_loss + lambda_repulsion * rep_loss) / accum_steps
+                    loss = (task_loss / accum_steps) + (lambda_repulsion * rep_loss)
                 else:
                     rep_loss_item = 0.0
                     loss = task_loss / accum_steps
@@ -357,9 +381,7 @@ def main():
         step = effective_step - 1  # 0-based for compatibility with eval checks
 
         if (
-            vis_interval
-            and vis_interval > 0
-            and effective_step % vis_interval == 0
+            needs_vis
             and use_repulsion
             and z is not None
             and m is not None
@@ -406,9 +428,11 @@ def main():
             # Compute rep_loss at evaluation time (not from last training batch)
             if use_repulsion:
                 with torch.no_grad():
+                    model.eval()
                     eval_x, _ = get_batch(val_data, block_size, batch_size, device)
                     _, eval_z, eval_m = model(eval_x, mask=mask, return_last_coords=True)
                     eval_rep_loss = compute_repulsion_loss(eval_z, mass=eval_m).item()
+                    model.train()
             else:
                 eval_rep_loss = 0.0
             elapsed = time.time() - t0

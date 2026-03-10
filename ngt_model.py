@@ -9,7 +9,7 @@ class GravityAttention(nn.Module):
     Newton Gravity Transformer (NGT) Gravity Attention.
     
     Features:
-    - Mass-based attention: Score = -γ × (m_i × m_j) / (dist² + ε)
+    - Mass-based attention: Score = γ × (m_i × m_j) / (dist² + ε)
     - Learnable radius sparse attention: masks pairs where dist² > radius²
     - Fixed sparse causal pattern: local window + selected far links
     """
@@ -93,7 +93,7 @@ class GravityAttention(nn.Module):
         
         # --- Gravity score computation ---
         inv_dist = torch.rsqrt(squared_dist + self.dist_eps)
-        base_score = -gamma * inv_dist * inv_dist
+        base_score = gamma * inv_dist * inv_dist
 
         # Apply learnable bias to widen softmax dynamic range
         base_score = base_score + self.gravity_bias
