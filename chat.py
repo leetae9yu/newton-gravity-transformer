@@ -75,7 +75,6 @@ def main():
             use_radius_cutoff=config.get("use_radius_cutoff", True),
             use_rsqrt=config.get("use_rsqrt", False),
             mass_in_value=config.get("mass_in_value", False),
-            use_soft_cutoff=config.get("use_soft_cutoff", False),
         ).to(device)
 
         model.load_state_dict(state_dict)

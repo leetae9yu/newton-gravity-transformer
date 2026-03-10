@@ -283,8 +283,6 @@ def parse_args():
                         help="Disable rsqrt-based gravity score and use division instead")
     parser.add_argument("--mass-in-value", action="store_true", default=False,
                         help="Apply mass to value weighting instead of attention scores")
-    parser.add_argument("--use-soft-cutoff", action="store_true", default=False,
-                        help="Use smooth ReLU-style radius cutoff instead of hard masking")
     parser.add_argument("--lambda-repulsion", type=float, default=0.05,
                         help="Weight for repulsion loss (default: 0.05)")
     parser.add_argument("--repulsion-interval", type=int, default=1,
@@ -409,7 +407,6 @@ def main():
     use_repulsion = not args.no_repulsion
     use_rsqrt = not args.no_rsqrt
     mass_in_value = args.mass_in_value
-    use_soft_cutoff = args.use_soft_cutoff
     use_amp = args.use_amp and torch.cuda.is_available()
     if args.use_amp and not torch.cuda.is_available():
         print("Warning: --use-amp ignored (CUDA not available)")
@@ -426,7 +423,6 @@ def main():
         use_radius_cutoff=use_radius_cutoff,
         use_rsqrt=use_rsqrt,
         mass_in_value=mass_in_value,
-        use_soft_cutoff=use_soft_cutoff,
     ).to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
@@ -445,8 +441,6 @@ def main():
             ablation_parts.append("rsqrt")
         if args.mass_in_value:
             ablation_parts.append("mass_val")
-        if args.use_soft_cutoff:
-            ablation_parts.append("soft_cutoff")
         ablation_str = "_".join(ablation_parts) if ablation_parts else "default"
         seed_str = f"_s{args.seed}" if args.seed is not None else ""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -477,6 +471,8 @@ def main():
 
     t0 = time.time()
     optimizer.zero_grad(set_to_none=True)
+    z = None
+    m = None
 
     for micro_step in range(max_steps * accum_steps):
         x, y = get_batch(train_data, block_size, batch_size, device)
@@ -518,7 +514,14 @@ def main():
 
         step = effective_step - 1  # 0-based for compatibility with eval checks
 
-        if vis_interval and vis_interval > 0 and effective_step % vis_interval == 0 and use_repulsion:
+        if (
+            vis_interval
+            and vis_interval > 0
+            and effective_step % vis_interval == 0
+            and use_repulsion
+            and z is not None
+            and m is not None
+        ):
             flat_z = z.detach().reshape(-1, z.size(-1))
             tokens_flat = x.detach().reshape(-1)
 
@@ -629,7 +632,6 @@ def main():
                             "use_radius_cutoff": use_radius_cutoff,
                             "use_rsqrt": use_rsqrt,
                             "mass_in_value": mass_in_value,
-                            "use_soft_cutoff": use_soft_cutoff,
                             "seed": args.seed,
                             "model_type": "ngt",
                             "gradient_accumulation_steps": accum_steps,
@@ -658,7 +660,6 @@ def main():
                 "use_radius_cutoff": use_radius_cutoff,
                 "use_rsqrt": use_rsqrt,
                 "mass_in_value": mass_in_value,
-                "use_soft_cutoff": use_soft_cutoff,
                 "seed": args.seed,
                 "model_type": "ngt",
                 "gradient_accumulation_steps": accum_steps,
@@ -687,7 +688,6 @@ def main():
         "use_repulsion": use_repulsion,
         "use_rsqrt": use_rsqrt,
         "mass_in_value": mass_in_value,
-        "use_soft_cutoff": use_soft_cutoff,
         "use_cosine_schedule": args.use_cosine_schedule,
         "warmup_steps": args.warmup_steps,
         "tokenizer": args.tokenizer,

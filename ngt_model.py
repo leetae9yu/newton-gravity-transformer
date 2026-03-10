@@ -25,7 +25,6 @@ class GravityAttention(nn.Module):
         use_radius_cutoff: bool = True,
         use_rsqrt: bool = True,
         mass_in_value: bool = False,
-        use_soft_cutoff: bool = False,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -36,7 +35,6 @@ class GravityAttention(nn.Module):
         self.use_radius_cutoff = use_radius_cutoff
         self.use_rsqrt = use_rsqrt
         self.mass_in_value = mass_in_value
-        self.use_soft_cutoff = use_soft_cutoff
         
         self.head_dim = hidden_dim // num_heads
         assert self.head_dim * num_heads == hidden_dim, "hidden_dim must be divisible by num_heads"
@@ -123,15 +121,11 @@ class GravityAttention(nn.Module):
             selected_value = selected_value * selected_mass.unsqueeze(1)
 
         # Sparse attention: radius-based cutoff
+        sparse_mask = None
         if self.use_radius_cutoff:
             radius_squared = radius ** 2
-            if self.use_soft_cutoff:
-                # Smooth ReLU-style decay: no bool comparison, no branching
-                penalty = F.relu(1.0 - squared_dist / radius_squared)
-                attn_scores = attn_scores * penalty
-            else:
-                sparse_mask = squared_dist > radius_squared
-                attn_scores = attn_scores.masked_fill(sparse_mask, torch.finfo(attn_scores.dtype).min)
+            sparse_mask = squared_dist > radius_squared
+            attn_scores = attn_scores.masked_fill(sparse_mask, torch.finfo(attn_scores.dtype).min)
 
         # Apply causal/padding mask if provided
         attn_scores = attn_scores.masked_fill(~sparse_pattern_mask.view(1, 1, seq_len, -1), torch.finfo(attn_scores.dtype).min)
@@ -152,13 +146,10 @@ class GravityAttention(nn.Module):
             eps = 1e-9
             entropy = -(attn_weights * torch.log(attn_weights + eps)).sum(dim=-1)
             # Sparsity ratio: fraction of pairs masked/suppressed by radius
-            if self.use_radius_cutoff and not self.use_soft_cutoff:
+            if self.use_radius_cutoff and sparse_mask is not None:
                 total_pairs = sparse_mask.numel()
                 masked_pairs = sparse_mask.sum().float()
                 sparsity_ratio = masked_pairs / total_pairs
-            elif self.use_radius_cutoff and self.use_soft_cutoff:
-                # For soft cutoff, measure fraction of pairs with penalty < 0.5
-                sparsity_ratio = (penalty < 0.5).float().mean()
             else:
                 sparsity_ratio = torch.tensor(0.0, device=hidden_states.device)
             stats = {
@@ -190,12 +181,12 @@ class GravityAttention(nn.Module):
 
 class NGTBlock(nn.Module):
     def __init__(self, hidden_dim, coord_dim, num_heads, mlp_dim, dropout=0.1,
-                 use_radius_cutoff=True, use_rsqrt=True, mass_in_value=False, use_soft_cutoff=False):
+                 use_radius_cutoff=True, use_rsqrt=True, mass_in_value=False):
         super().__init__()
         self.attn = GravityAttention(
             hidden_dim, coord_dim, num_heads, dropout=dropout,
             use_radius_cutoff=use_radius_cutoff, use_rsqrt=use_rsqrt,
-            mass_in_value=mass_in_value, use_soft_cutoff=use_soft_cutoff,
+            mass_in_value=mass_in_value,
         )
         self.ffn = FeedForward(hidden_dim, mlp_dim, dropout=dropout)
         
@@ -207,6 +198,7 @@ class NGTBlock(nn.Module):
 
     def forward(self, h, z, mass=None, mask=None, return_stats=False):
         # Attention + Residual
+        stats = None
         if return_stats:
             h_attn, z_next, stats = self.attn(self.norm1(h), z, mass=mass, mask=mask, return_stats=True)
         else:
@@ -236,7 +228,6 @@ class NewtonGravityTransformer(nn.Module):
         use_radius_cutoff=True,
         use_rsqrt=True,
         mass_in_value=False,
-        use_soft_cutoff=False,
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, hidden_dim)
@@ -249,7 +240,7 @@ class NewtonGravityTransformer(nn.Module):
             NGTBlock(
                 hidden_dim, coord_dim, num_heads, mlp_dim, dropout,
                 use_radius_cutoff=use_radius_cutoff, use_rsqrt=use_rsqrt,
-                mass_in_value=mass_in_value, use_soft_cutoff=use_soft_cutoff,
+                mass_in_value=mass_in_value,
             )
             for _ in range(num_layers)
         ])
