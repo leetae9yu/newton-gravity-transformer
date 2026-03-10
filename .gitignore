@@ -96,6 +96,7 @@ run_experiments.sh
 test_ngt.py
 visualize_coords.py
 reports/Summary.md
+reports/w3_25m_summary.md
 
 # Keep repo focused on NGT chat/training core only
 *.sh
