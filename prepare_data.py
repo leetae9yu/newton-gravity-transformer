@@ -22,8 +22,8 @@ def main():
     parser.add_argument(
         "--dataset",
         default="wikitext2",
-        choices=["wikitext2", "wikitext103"],
-        help="WikiText dataset to prepare (default: wikitext2).",
+        choices=["wikitext2"],
+        help="Dataset to prepare (fixed: wikitext2).",
     )
     parser.add_argument(
         "--data-path",
@@ -32,10 +32,7 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.dataset == "wikitext2":
-        prepare_wikitext(data_path=args.data_path or "data", hf_variant="wikitext-2-raw-v1")
-    else:
-        prepare_wikitext(data_path=args.data_path or "data", hf_variant="wikitext-103-raw-v1")
+    prepare_wikitext(data_path=args.data_path or "data", hf_variant="wikitext-2-raw-v1")
 
 
 if __name__ == "__main__":

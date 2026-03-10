@@ -104,13 +104,4 @@ def load_dataset(dataset_name, tokenizer, data_path=None):
             cache_prefix="wikitext2",
             dataset_label="WikiText-2-raw-v1",
         )
-    if dataset_name == "wikitext103":
-        return _load_wikitext(
-            tokenizer,
-            data_path,
-            hf_variant="wikitext-103-raw-v1",
-            cache_prefix="wikitext103",
-            dataset_label="WikiText-103-raw-v1",
-        )
-    else:
-        raise ValueError(f"Unknown dataset: {dataset_name}")
+    raise ValueError(f"Unknown dataset: {dataset_name}")

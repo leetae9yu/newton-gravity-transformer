@@ -116,77 +116,12 @@ DEFAULT_CONFIG = {
     "tokenizer_path": os.path.join("data", "tokenizer_wikitext2_bpe_8192.json"),
 }
 
-_WIKITEXT103_BASE = {
-    "data_path": "data",
-    "batch_size": 32,
-    "block_size": 512,
-    "max_steps": 100000,
-    "eval_interval": 500,
-    "eval_iters": 100,
-    "learning_rate": 3e-4,
-    "grad_clip": 1.0,
-    "hidden_dim": 512,
-    "num_layers": 8,
-    "num_heads": 8,
-    "mlp_dim": 2048,
-    "dropout": 0.1,
-    "bpe_vocab_size": 8192,
-    "tokenizer_path": os.path.join("data", "tokenizer_wikitext103_bpe_8192.json"),
-}
-
-WIKITEXT2_CONFIG = {
-    "data_path": "data",
-    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext2_bpe_8192.pt"),
-    "batch_size": 64,
-    "block_size": 256,
-    "max_steps": 20000,
-    "eval_interval": 200,
-    "eval_iters": 50,
-    "learning_rate": 3e-4,
-    "grad_clip": 1.0,
-    "hidden_dim": 256,
-    "coord_dim": 32,
-    "num_layers": 6,
-    "num_heads": 8,
-    "mlp_dim": 1024,
-    "dropout": 0.1,
-    "bpe_vocab_size": 8192,
-    "tokenizer_path": os.path.join("data", "tokenizer_wikitext2_bpe_8192.json"),
-}
-
-WIKITEXT103_CONFIG = {
-    **_WIKITEXT103_BASE,
-    "coord_dim": 64,
-    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext103_bpe_8192.pt"),
-}
-
-
-def _apply_preset(args, preset, *default_dicts):
-    """Apply preset defaults for arguments not explicitly set on the CLI.
-
-    ``default_dicts`` are additional dicts whose values are treated as
-    defaults (i.e. if the current attribute value equals any of them,
-    it will be overwritten by the preset).
-    """
-    for key, value in preset.items():
-        attr = key.replace("-", "_")
-        current = getattr(args, attr, None)
-        if current is None:
-            setattr(args, attr, value)
-            continue
-        # Overwrite if current value matches any known default
-        for d in (DEFAULT_CONFIG, *default_dicts):
-            if current == d.get(key):
-                setattr(args, attr, value)
-                break
-    return args
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train NGT.")
     parser.add_argument("--dataset", type=str, default="wikitext2",
-                        choices=["wikitext2", "wikitext103"],
-                        help="WikiText dataset to train on (default: wikitext2)")
+                        choices=["wikitext2"],
+                        help="Dataset to train on (fixed: wikitext2)")
     parser.add_argument("--data-path", default=DEFAULT_CONFIG["data_path"])
     parser.add_argument("--checkpoint-path", default=DEFAULT_CONFIG["checkpoint_path"])
     parser.add_argument("--batch-size", type=int, default=DEFAULT_CONFIG["batch_size"])
@@ -227,12 +162,7 @@ def parse_args():
                         help="Random seed for reproducibility")
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1,
                         help="Number of gradient accumulation steps (default: 1)")
-    args = parser.parse_args()
-    if args.dataset == "wikitext2":
-        _apply_preset(args, WIKITEXT2_CONFIG)
-    elif args.dataset == "wikitext103":
-        _apply_preset(args, WIKITEXT103_CONFIG)
-    return args
+    return parser.parse_args()
 
 
 def main():
@@ -310,7 +240,7 @@ def main():
 
     if tokenizer is None:
         from datasets import load_dataset as hf_load_dataset
-        hf_variant = "wikitext-2-raw-v1" if args.dataset == "wikitext2" else "wikitext-103-raw-v1"
+        hf_variant = "wikitext-2-raw-v1"
         print(f"Loading {hf_variant} text for BPE training...")
         ds = hf_load_dataset("wikitext", hf_variant, split="train")
         iterator = (line for line in ds["text"] if line.strip())
