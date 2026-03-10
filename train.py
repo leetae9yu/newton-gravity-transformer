@@ -279,8 +279,6 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=DEFAULT_CONFIG["dropout"])
     parser.add_argument("--no-repulsion", action="store_true", default=False,
                         help="Disable repulsion loss during training")
-    parser.add_argument("--no-rsqrt", action="store_true", default=False,
-                        help="Disable rsqrt-based gravity score and use division instead")
     parser.add_argument("--mass-in-value", action="store_true", default=False,
                         help="Apply mass to value weighting instead of attention scores")
     parser.add_argument("--lambda-repulsion", type=float, default=0.05,
@@ -405,7 +403,6 @@ def main():
 
     use_radius_cutoff = True
     use_repulsion = not args.no_repulsion
-    use_rsqrt = not args.no_rsqrt
     mass_in_value = args.mass_in_value
     use_amp = args.use_amp and torch.cuda.is_available()
     if args.use_amp and not torch.cuda.is_available():
@@ -421,7 +418,6 @@ def main():
         max_seq_len=block_size,
         dropout=dropout,
         use_radius_cutoff=use_radius_cutoff,
-        use_rsqrt=use_rsqrt,
         mass_in_value=mass_in_value,
     ).to(device)
 
@@ -437,8 +433,6 @@ def main():
         ablation_parts = []
         if args.no_repulsion:
             ablation_parts.append("no_repulsion")
-        if use_rsqrt:
-            ablation_parts.append("rsqrt")
         if args.mass_in_value:
             ablation_parts.append("mass_val")
         ablation_str = "_".join(ablation_parts) if ablation_parts else "default"
@@ -630,7 +624,6 @@ def main():
                             "vocab_size": vocab_size,
                             "dataset": args.dataset,
                             "use_radius_cutoff": use_radius_cutoff,
-                            "use_rsqrt": use_rsqrt,
                             "mass_in_value": mass_in_value,
                             "seed": args.seed,
                             "model_type": "ngt",
@@ -658,7 +651,6 @@ def main():
                 "vocab_size": vocab_size,
                 "dataset": args.dataset,
                 "use_radius_cutoff": use_radius_cutoff,
-                "use_rsqrt": use_rsqrt,
                 "mass_in_value": mass_in_value,
                 "seed": args.seed,
                 "model_type": "ngt",
@@ -686,7 +678,6 @@ def main():
         "dropout": dropout,
         "use_radius_cutoff": use_radius_cutoff,
         "use_repulsion": use_repulsion,
-        "use_rsqrt": use_rsqrt,
         "mass_in_value": mass_in_value,
         "use_cosine_schedule": args.use_cosine_schedule,
         "warmup_steps": args.warmup_steps,

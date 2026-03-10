@@ -73,7 +73,6 @@ def main():
             max_seq_len=config["max_seq_len"],
             dropout=config["dropout"],
             use_radius_cutoff=config.get("use_radius_cutoff", True),
-            use_rsqrt=config.get("use_rsqrt", False),
             mass_in_value=config.get("mass_in_value", False),
         ).to(device)
 

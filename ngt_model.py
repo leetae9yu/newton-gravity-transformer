@@ -23,7 +23,6 @@ class GravityAttention(nn.Module):
         initial_radius: float = 4.0,
         dist_eps: float = 1e-6,
         use_radius_cutoff: bool = True,
-        use_rsqrt: bool = True,
         mass_in_value: bool = False,
     ):
         super().__init__()
@@ -33,7 +32,6 @@ class GravityAttention(nn.Module):
         self.head_coord_dim = head_coord_dim
         self.dist_eps = dist_eps
         self.use_radius_cutoff = use_radius_cutoff
-        self.use_rsqrt = use_rsqrt
         self.mass_in_value = mass_in_value
         
         self.head_dim = hidden_dim // num_heads
@@ -94,12 +92,8 @@ class GravityAttention(nn.Module):
         radius = self.softplus(self.radius_param)
         
         # --- Gravity score computation ---
-        # Base inverse-distance score
-        if self.use_rsqrt:
-            inv_dist = torch.rsqrt(squared_dist + self.dist_eps)
-            base_score = -gamma * inv_dist * inv_dist
-        else:
-            base_score = -gamma / (squared_dist + self.dist_eps)
+        inv_dist = torch.rsqrt(squared_dist + self.dist_eps)
+        base_score = -gamma * inv_dist * inv_dist
 
         # Apply learnable bias to widen softmax dynamic range
         base_score = base_score + self.gravity_bias
@@ -181,11 +175,11 @@ class GravityAttention(nn.Module):
 
 class NGTBlock(nn.Module):
     def __init__(self, hidden_dim, coord_dim, num_heads, mlp_dim, dropout=0.1,
-                 use_radius_cutoff=True, use_rsqrt=True, mass_in_value=False):
+                 use_radius_cutoff=True, mass_in_value=False):
         super().__init__()
         self.attn = GravityAttention(
             hidden_dim, coord_dim, num_heads, dropout=dropout,
-            use_radius_cutoff=use_radius_cutoff, use_rsqrt=use_rsqrt,
+            use_radius_cutoff=use_radius_cutoff,
             mass_in_value=mass_in_value,
         )
         self.ffn = FeedForward(hidden_dim, mlp_dim, dropout=dropout)
@@ -226,7 +220,6 @@ class NewtonGravityTransformer(nn.Module):
         max_seq_len=512,
         dropout=0.1,
         use_radius_cutoff=True,
-        use_rsqrt=True,
         mass_in_value=False,
     ):
         super().__init__()
@@ -239,7 +232,7 @@ class NewtonGravityTransformer(nn.Module):
         self.layers = nn.ModuleList([
             NGTBlock(
                 hidden_dim, coord_dim, num_heads, mlp_dim, dropout,
-                use_radius_cutoff=use_radius_cutoff, use_rsqrt=use_rsqrt,
+                use_radius_cutoff=use_radius_cutoff,
                 mass_in_value=mass_in_value,
             )
             for _ in range(num_layers)
