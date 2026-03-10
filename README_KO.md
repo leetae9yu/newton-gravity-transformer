@@ -12,7 +12,7 @@
 
 NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적 Transformer 변형입니다. 각 토큰은 학습되는 **질량(mass)**과 **좌표(coordinates)**를 가지며, 어텐션은 잠재 공간에서의 거리 기반 **중력 커널(gravity kernel)**로 계산됩니다.
 
-이 레포는 현재 학습, TensorBoard 로깅, `*_best.pt`/`*_last.pt` 체크포인트, 그리고 과거 실험에서 생성한 좌표 시각화 아티팩트를 중심으로 관리합니다.
+이 레포는 현재 학습, TensorBoard 로깅, `*_best.pt`/`*_last.pt` 체크포인트를 중심으로 관리합니다.
 
 ---
 
@@ -117,14 +117,6 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 ```bash
 python train.py --data-path data \
   --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt
-```
-
----
-
-TensorBoard:
-
-```bash
-tensorboard --logdir runs
 ```
 
 ---

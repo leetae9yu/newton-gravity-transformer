@@ -12,7 +12,7 @@
 
 NGT is an experimental Transformer variant where tokens behave like particles: each token has a learned **mass** and **coordinates**, and attention is a learnable **gravity kernel** over distances in a latent space.
 
-This repo currently focuses on end-to-end training, logging (TensorBoard), checkpointing (`*_best.pt` / `*_last.pt`), and archived coordinate visualizations from earlier experiments.
+This repo currently focuses on end-to-end training, logging (TensorBoard), and checkpointing (`*_best.pt` / `*_last.pt`).
 
 ---
 
@@ -117,14 +117,6 @@ Example:
 ```bash
 python train.py --data-path data \
   --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt
-```
-
----
-
-TensorBoard:
-
-```bash
-tensorboard --logdir runs
 ```
 
 ---
