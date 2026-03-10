@@ -1,11 +1,4 @@
-"""
-Unified data loading module.
-
-Supports:
-  - shakespeare: char-level TinyShakespeare (read text → encode → 90/10 split)
-  - wikitext2: WikiText-2-raw-v1 via HuggingFace datasets (train/val/test splits, cached)
-  - wikitext103: WikiText-103-raw-v1 via HuggingFace datasets (train/val/test splits, cached)
-"""
+"""WikiText data loading with tokenizer-aware caching."""
 
 import json
 import os
@@ -21,23 +14,6 @@ def _tokenizer_fingerprint(tokenizer) -> str:
     state = tokenizer.save_state()
     payload = json.dumps(state, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
-
-
-def _load_shakespeare(tokenizer, data_path):
-    """Load TinyShakespeare: read text, encode, 90/10 split."""
-    if data_path is None:
-        data_path = os.path.join("data", "input.txt")
-    with open(data_path, "r", encoding="utf-8") as f:
-        text = f.read()
-    data = tokenizer.encode_to_tensor(text)
-    split_idx = int(0.9 * len(data))
-    return {
-        "train": data[:split_idx],
-        "val": data[split_idx:],
-        "test": None,
-        "text": text,
-    }
-
 
 def _load_wikitext(tokenizer, data_path, hf_variant, cache_prefix, dataset_label):
     """Load a raw WikiText variant with tokenizer-aware caching."""
@@ -101,16 +77,6 @@ def _load_wikitext(tokenizer, data_path, hf_variant, cache_prefix, dataset_label
             torch.save(tensor, cache_file)
             print(f"Cached {split_name} split: {tensor.numel():,} tokens -> {cache_file}")
             splits[out_key] = tensor
-            continue
-            # Concatenate all text, filtering empty lines
-            lines = [line for line in split_data["text"] if line.strip()]
-            full_text = "\n".join(lines)
-            print(f"Encoding {split_name} split ({len(full_text):,} chars)...")
-            tokens = tokenizer.encode(full_text)
-            tensor = torch.tensor(tokens, dtype=torch.long)
-            torch.save(tensor, cache_file)
-            print(f"Cached {split_name} split: {len(tensor):,} tokens → {cache_file}")
-            splits[out_key] = tensor
 
     if not cache_valid:
         with open(meta_path, "w") as f:
@@ -128,11 +94,9 @@ def load_dataset(dataset_name, tokenizer, data_path=None):
     """
     Load a dataset and return tokenized splits.
 
-    Returns: {"train": Tensor, "val": Tensor, "test": Tensor|None, "text": str|None}
+    Returns: {"train": Tensor, "val": Tensor, "test": Tensor|None, "text": None}
     """
-    if dataset_name == "shakespeare":
-        return _load_shakespeare(tokenizer, data_path)
-    elif dataset_name == "wikitext2":
+    if dataset_name == "wikitext2":
         return _load_wikitext(
             tokenizer,
             data_path,
@@ -140,7 +104,7 @@ def load_dataset(dataset_name, tokenizer, data_path=None):
             cache_prefix="wikitext2",
             dataset_label="WikiText-2-raw-v1",
         )
-    elif dataset_name == "wikitext103":
+    if dataset_name == "wikitext103":
         return _load_wikitext(
             tokenizer,
             data_path,

@@ -84,7 +84,7 @@ def main():
         return
 
     block_size = config["max_seq_len"]
-    dataset_name = config.get("dataset", "shakespeare")
+    dataset_name = config.get("dataset", "wikitext2")
 
     print(f"Dataset: {dataset_name}")
     print("Loaded checkpoint. Type /quit to exit.")

@@ -1,7 +1,6 @@
 import argparse
 import math
 import os
-import pickle
 import time
 from datetime import datetime
 
@@ -13,30 +12,10 @@ from torch.utils.tensorboard import SummaryWriter
 from common import build_causal_mask
 from ngt_model import NewtonGravityTransformer
 from data_utils import load_dataset
-from prepare_data import ensure_data
 from tokenizer_utils import (
-    build_tokenizer,
-    load_tokenizer,
     load_tokenizer_from_path,
-    save_tokenizer_to_path,
     train_bpe_tokenizer_from_iterator,
 )
-
-
-def read_text(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-def build_vocab(text):
-    chars = sorted(set(text))
-    stoi = {ch: i for i, ch in enumerate(chars)}
-    itos = {i: ch for ch, i in stoi.items()}
-    return chars, stoi, itos
-
-
-def encode(text, stoi):
-    return torch.tensor([stoi[ch] for ch in text], dtype=torch.long)
 
 
 def get_batch(data, block_size, batch_size, device):
@@ -100,65 +79,6 @@ def compute_repulsion_loss(z, mass=None, alpha=2.0, min_dist=1e-3, max_samples=6
     return pairwise.mean()
 
 
-PROBE_WORDS = {
-    "royalty": ["KING", "QUEEN", "PRINCE", "PRINCESS"],
-    "family": ["MOTHER", "FATHER", "SON", "DAUGHTER"],
-    "antonyms": ["LOVE", "HATE", "WAR", "PEACE"],
-}
-
-
-def encode_probe_words(stoi):
-    encoded = {}
-    for group, words in PROBE_WORDS.items():
-        valid_words = []
-        for word in words:
-            if all(ch in stoi for ch in word):
-                valid_words.append((word, encode(word, stoi)))
-        if valid_words:
-            encoded[group] = valid_words
-    return encoded
-
-
-def record_probe_snapshot(x, z, m, probe_words, itos, step, path):
-    records = []
-    batch, seq_len = x.size()
-    for b in range(batch):
-        seq = x[b]
-        for group, word_list in probe_words.items():
-            for word, token_ids in word_list:
-                word_len = token_ids.numel()
-                if word_len == 0 or word_len > seq_len:
-                    continue
-                token_ids = token_ids.to(seq.device)
-                for start in range(seq_len - word_len + 1):
-                    window = seq[start : start + word_len]
-                    if torch.equal(window, token_ids):
-                        coords = z[b, start : start + word_len].detach().cpu()
-                        masses = m[b, start : start + word_len].detach().cpu().squeeze(-1)
-                        chars = [
-                            itos[int(idx)] if int(idx) in itos else "<unk>"
-                            for idx in window
-                        ]
-                        for idx_in_word in range(word_len):
-                            records.append(
-                                {
-                                    "group": group,
-                                    "word": word,
-                                    "char": chars[idx_in_word],
-                                    "position": idx_in_word,
-                                    "coord": coords[idx_in_word].tolist(),
-                                    "mass": float(masses[idx_in_word]),
-                                }
-                            )
-    if not records:
-        return
-
-    snapshot = {"step": step, "records": records}
-    # Append-only: write single snapshot to avoid O(n²) I/O
-    with open(path, "ab") as f:
-        pickle.dump(snapshot, f)
-
-
 @torch.no_grad()
 def estimate_loss(model, data, block_size, batch_size, device, mask, criterion, eval_iters):
     model.eval()
@@ -175,8 +95,8 @@ def estimate_loss(model, data, block_size, batch_size, device, mask, criterion, 
 
 
 DEFAULT_CONFIG = {
-    "data_path": os.path.join("data", "input.txt"),
-    "checkpoint_path": os.path.join("checkpoints", "shakespeare.pt"),
+    "data_path": "data",
+    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext2_bpe_8192.pt"),
     "resume": False,
     "batch_size": 64,
     "block_size": 256,
@@ -192,6 +112,8 @@ DEFAULT_CONFIG = {
     "num_heads": 8,
     "mlp_dim": 1024,
     "dropout": 0.1,
+    "bpe_vocab_size": 8192,
+    "tokenizer_path": os.path.join("data", "tokenizer_wikitext2_bpe_8192.json"),
 }
 
 _WIKITEXT103_BASE = {
@@ -208,11 +130,13 @@ _WIKITEXT103_BASE = {
     "num_heads": 8,
     "mlp_dim": 2048,
     "dropout": 0.1,
+    "bpe_vocab_size": 8192,
+    "tokenizer_path": os.path.join("data", "tokenizer_wikitext103_bpe_8192.json"),
 }
 
 WIKITEXT2_CONFIG = {
     "data_path": "data",
-    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext2.pt"),
+    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext2_bpe_8192.pt"),
     "batch_size": 64,
     "block_size": 256,
     "max_steps": 20000,
@@ -226,12 +150,14 @@ WIKITEXT2_CONFIG = {
     "num_heads": 8,
     "mlp_dim": 1024,
     "dropout": 0.1,
+    "bpe_vocab_size": 8192,
+    "tokenizer_path": os.path.join("data", "tokenizer_wikitext2_bpe_8192.json"),
 }
 
 WIKITEXT103_CONFIG = {
     **_WIKITEXT103_BASE,
     "coord_dim": 64,
-    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext103.pt"),
+    "checkpoint_path": os.path.join("checkpoints", "ngt_wikitext103_bpe_8192.pt"),
 }
 
 
@@ -259,8 +185,8 @@ def _apply_preset(args, preset, *default_dicts):
 def parse_args():
     parser = argparse.ArgumentParser(description="Train NGT.")
     parser.add_argument("--dataset", type=str, default="wikitext2",
-                        choices=["shakespeare", "wikitext2", "wikitext103"],
-                        help="Dataset to train on (default: wikitext2)")
+                        choices=["wikitext2", "wikitext103"],
+                        help="WikiText dataset to train on (default: wikitext2)")
     parser.add_argument("--data-path", default=DEFAULT_CONFIG["data_path"])
     parser.add_argument("--checkpoint-path", default=DEFAULT_CONFIG["checkpoint_path"])
     parser.add_argument("--batch-size", type=int, default=DEFAULT_CONFIG["batch_size"])
@@ -291,12 +217,10 @@ def parse_args():
                         help="Number of linear warmup steps for LR scheduler (0 = no warmup)")
     parser.add_argument("--use-cosine-schedule", action="store_true", default=False,
                         help="Use cosine annealing LR schedule (with optional warmup)")
-    parser.add_argument("--tokenizer", type=str, default="char", choices=["char", "bpe", "tiktoken"],
-                        help="Tokenizer type: char (default), bpe, or tiktoken")
-    parser.add_argument("--bpe-vocab-size", type=int, default=4000,
-                        help="BPE vocabulary size (only used with --tokenizer bpe)")
+    parser.add_argument("--bpe-vocab-size", type=int, default=DEFAULT_CONFIG["bpe_vocab_size"],
+                        help="BPE vocabulary size")
     parser.add_argument("--tokenizer-path", type=str, default=None,
-                        help="Path to tokenizer state JSON to load/save for reproducibility (recommended for WikiText runs)")
+                        help="Path to BPE tokenizer state JSON to load/save for reproducibility")
     parser.add_argument("--run-name", type=str, default=None,
                         help="Custom TensorBoard run directory name (default: auto-generated)")
     parser.add_argument("--seed", type=int, default=None,
@@ -320,14 +244,10 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(args.seed)
 
-    if args.dataset == "shakespeare":
-        data_path = ensure_data(args.data_path)
-    else:
-        data_path = args.data_path
+    data_path = args.data_path
     checkpoint_path = args.checkpoint_path
     best_checkpoint_path = f"{checkpoint_path}_best.pt"
     last_checkpoint_path = f"{checkpoint_path}_last.pt"
-    gravity_evolution_path = os.path.join("checkpoints", "gravity_evolution.pkl")
 
     batch_size = args.batch_size
     block_size = args.block_size
@@ -363,43 +283,21 @@ def main():
     if args.tokenizer_path and os.path.exists(args.tokenizer_path):
         tokenizer = load_tokenizer_from_path(args.tokenizer_path)
         tok_type = tokenizer.save_state().get("type")
-        if tok_type != args.tokenizer:
-            print(f"Warning: --tokenizer={args.tokenizer} but tokenizer file is type={tok_type}; using tokenizer file.")
+        if tok_type != "bpe":
+            raise ValueError(f"Only BPE tokenizer files are supported, got type={tok_type}")
 
     if tokenizer is None:
-        if args.dataset in {"wikitext2", "wikitext103"}:
-            if args.tokenizer == "bpe":
-                from datasets import load_dataset as hf_load_dataset
-                hf_variant = "wikitext-2-raw-v1" if args.dataset == "wikitext2" else "wikitext-103-raw-v1"
-                print(f"Loading {hf_variant} text for BPE training...")
-                ds = hf_load_dataset("wikitext", hf_variant, split="train")
-                iterator = (line for line in ds["text"] if line.strip())
-                tokenizer = train_bpe_tokenizer_from_iterator(iterator, args.bpe_vocab_size, args.tokenizer_path)
-                del ds
-            else:
-                tokenizer = build_tokenizer("", args.tokenizer, args.bpe_vocab_size)
-            if args.tokenizer == "char":
-                print(f"Warning: {args.dataset} is best used with --tokenizer bpe or tiktoken (got {args.tokenizer})")
-        else:
-            text = read_text(data_path)
-            tokenizer = build_tokenizer(text, args.tokenizer, args.bpe_vocab_size)
-
-        if args.tokenizer_path and args.tokenizer != "bpe":
-            save_tokenizer_to_path(tokenizer, args.tokenizer_path)
-            print(f"Saved tokenizer to {args.tokenizer_path}")
+        from datasets import load_dataset as hf_load_dataset
+        hf_variant = "wikitext-2-raw-v1" if args.dataset == "wikitext2" else "wikitext-103-raw-v1"
+        print(f"Loading {hf_variant} text for BPE training...")
+        ds = hf_load_dataset("wikitext", hf_variant, split="train")
+        iterator = (line for line in ds["text"] if line.strip())
+        tokenizer = train_bpe_tokenizer_from_iterator(iterator, args.bpe_vocab_size, args.tokenizer_path)
+        del ds
 
     splits = load_dataset(args.dataset, tokenizer, data_path)
     train_data, val_data = splits["train"], splits["val"]
-    text = splits.get("text")  # None for HuggingFace-backed WikiText datasets
     vocab_size = tokenizer.vocab_size
-
-    # Probe words only make sense for char-level tokenizer with shakespeare
-    use_char_tokenizer = args.tokenizer == "char" and text is not None
-    if use_char_tokenizer:
-        _, stoi, itos = build_vocab(text)
-        probe_word_ids = encode_probe_words(stoi)
-    else:
-        stoi, itos, probe_word_ids = None, None, {}
 
     use_radius_cutoff = True
     use_repulsion = not args.no_repulsion
@@ -459,10 +357,6 @@ def main():
     checkpoint_dir = os.path.dirname(checkpoint_path)
     if checkpoint_dir:
         os.makedirs(checkpoint_dir, exist_ok=True)
-    gravity_dir = os.path.dirname(gravity_evolution_path)
-    if gravity_dir:
-        os.makedirs(gravity_dir, exist_ok=True)
-
     t0 = time.time()
     optimizer.zero_grad(set_to_none=True)
     z = None
@@ -533,16 +427,6 @@ def main():
                 metadata=tokens_text,
                 global_step=effective_step,
             )
-            if probe_word_ids and use_char_tokenizer:
-                record_probe_snapshot(
-                    x.cpu(),
-                    z.cpu(),
-                    m.cpu(),
-                    probe_word_ids,
-                    itos,
-                    effective_step,
-                    gravity_evolution_path,
-                )
 
         if effective_step % eval_interval == 0:
             train_loss = estimate_loss(
@@ -623,6 +507,8 @@ def main():
                             "dropout": dropout,
                             "vocab_size": vocab_size,
                             "dataset": args.dataset,
+                            "tokenizer": "bpe",
+                            "bpe_vocab_size": args.bpe_vocab_size,
                             "use_radius_cutoff": use_radius_cutoff,
                             "mass_in_value": mass_in_value,
                             "seed": args.seed,
@@ -650,6 +536,8 @@ def main():
                 "dropout": dropout,
                 "vocab_size": vocab_size,
                 "dataset": args.dataset,
+                "tokenizer": "bpe",
+                "bpe_vocab_size": args.bpe_vocab_size,
                 "use_radius_cutoff": use_radius_cutoff,
                 "mass_in_value": mass_in_value,
                 "seed": args.seed,
@@ -676,12 +564,13 @@ def main():
         "batch_size": batch_size,
         "learning_rate": learning_rate,
         "dropout": dropout,
+        "tokenizer": "bpe",
+        "bpe_vocab_size": args.bpe_vocab_size,
         "use_radius_cutoff": use_radius_cutoff,
         "use_repulsion": use_repulsion,
         "mass_in_value": mass_in_value,
         "use_cosine_schedule": args.use_cosine_schedule,
         "warmup_steps": args.warmup_steps,
-        "tokenizer": args.tokenizer,
         "seed": args.seed if args.seed is not None else -1,
         "gradient_accumulation_steps": accum_steps,
     }
