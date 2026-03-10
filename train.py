@@ -258,14 +258,36 @@ def main():
     learning_rate = args.learning_rate
     grad_clip = args.grad_clip
     
-    # Validate intervals to prevent ZeroDivisionError
+    # Validate numeric arguments early so invalid runs fail fast.
+    if batch_size <= 0:
+        raise ValueError(f"--batch-size must be > 0, got {batch_size}")
+    if block_size <= 0:
+        raise ValueError(f"--block-size must be > 0, got {block_size}")
+    if max_steps <= 0:
+        raise ValueError(f"--max-steps must be > 0, got {max_steps}")
     if eval_interval <= 0:
         raise ValueError(f"--eval-interval must be > 0, got {eval_interval}")
+    if eval_iters <= 0:
+        raise ValueError(f"--eval-iters must be > 0, got {eval_iters}")
     if vis_interval <= 0:
         print(f"Warning: --vis-interval={vis_interval} is invalid, disabling visualization.")
         vis_interval = None
+    if learning_rate <= 0:
+        raise ValueError(f"--learning-rate must be > 0, got {learning_rate}")
+    if grad_clip <= 0:
+        raise ValueError(f"--grad-clip must be > 0, got {grad_clip}")
+    if args.gradient_accumulation_steps <= 0:
+        raise ValueError(
+            f"--gradient-accumulation-steps must be > 0, got {args.gradient_accumulation_steps}"
+        )
+    if args.bpe_vocab_size <= 0:
+        raise ValueError(f"--bpe-vocab-size must be > 0, got {args.bpe_vocab_size}")
+    if args.lambda_repulsion < 0:
+        raise ValueError(f"--lambda-repulsion must be >= 0, got {args.lambda_repulsion}")
     lambda_repulsion = args.lambda_repulsion
     repulsion_interval = args.repulsion_interval
+    if repulsion_interval <= 0:
+        raise ValueError(f"--repulsion-interval must be > 0, got {repulsion_interval}")
 
     hidden_dim = args.hidden_dim
     coord_dim = args.coord_dim
