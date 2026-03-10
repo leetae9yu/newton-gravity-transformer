@@ -44,7 +44,7 @@ Validation loss is cross-entropy; perplexity is `exp(loss)`.
 |---|---|---:|---:|---:|
 | vanilla | baseline | 4.5554 | 95.14 | 4.5524 (13500) |
 | ngt_mass_in_value | `--mass-in-value` | 4.6635 | 106.01 | 4.6451 (13000) |
-| ngt_no_repulsion | `--no-repulsion` | 4.7214 | 112.33 | 4.7214 (15000) |
+| ngt_no_repulsion | repulsion disabled (legacy run) | 4.7214 | 112.33 | 4.7214 (15000) |
 | ngt_repulsion_interval_8 | `--repulsion-interval 8` | 4.7889 | 120.17 | 4.7748 (13000) |
 | ngt_default | default | 4.7915 | 120.48 | 4.7762 (13000) |
 
@@ -53,7 +53,7 @@ Throughput on the same settings (`batch=16`, `accum=2`, `block=512`):
 - vanilla: ~4.964 steps/s
 - ngt_mass_in_value: ~0.852 steps/s
 - ngt_no_radius: ~0.855 steps/s
-- ngt_default / ngt_no_repulsion / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
+- ngt_default / ngt_no_repulsion (legacy) / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
 
 This is a budget-constrained screening run (15k steps, roughly about 2 epochs depending on tokenized train-set size), so treat results as directional.
 
@@ -115,7 +115,7 @@ Common flags:
 
 - Dataset: `--dataset {wikitext2,wikitext103}`, `--data-path ...`
 - Tokenizer: fixed BPE path with `--bpe-vocab-size` and `--tokenizer-path`
-- Regularization: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
+- Regularization: `--repulsion`, `--lambda-repulsion`, `--repulsion-interval` (`4` by default when enabled)
 - Performance: gravity scoring uses the rsqrt-based path, plus `--use-amp`, `--gradient-accumulation-steps`
 - Schedule: `--use-cosine-schedule --warmup-steps N`
 
@@ -142,7 +142,7 @@ Interactive HTML visualizations (Plotly 3D PCA):
 - [coords_ngt_default.html](w3_25m_results_latest/results/w3_25m/coords_ngt_default.html)
 - [coords_ngt_mass_in_value.html](w3_25m_results_latest/results/w3_25m/coords_ngt_mass_in_value.html)
 - [coords_ngt_no_radius.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_radius.html)
-- [coords_ngt_no_repulsion.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_repulsion.html)
+- [coords_ngt_no_repulsion.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_repulsion.html) (legacy filename)
 - [coords_ngt_repulsion_interval_8.html](w3_25m_results_latest/results/w3_25m/coords_ngt_repulsion_interval_8.html)
 
 TensorBoard:

@@ -44,7 +44,7 @@ val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 |---|---|---:|---:|---:|
 | vanilla | baseline | 4.5554 | 95.14 | 4.5524 (13500) |
 | ngt_mass_in_value | `--mass-in-value` | 4.6635 | 106.01 | 4.6451 (13000) |
-| ngt_no_repulsion | `--no-repulsion` | 4.7214 | 112.33 | 4.7214 (15000) |
+| ngt_no_repulsion | repulsion 비활성화(레거시 실행) | 4.7214 | 112.33 | 4.7214 (15000) |
 | ngt_repulsion_interval_8 | `--repulsion-interval 8` | 4.7889 | 120.17 | 4.7748 (13000) |
 | ngt_default | 기본값 | 4.7915 | 120.48 | 4.7762 (13000) |
 
@@ -53,7 +53,7 @@ val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 - vanilla: ~4.964 steps/s
 - ngt_mass_in_value: ~0.852 steps/s
 - ngt_no_radius: ~0.855 steps/s
-- ngt_default / ngt_no_repulsion / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
+- ngt_default / ngt_no_repulsion(레거시) / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
 
 본 결과는 예산 제약 기반 15k 스크리닝(토크나이즈된 train 토큰 수 가정에 따라 대략 2 epoch 내외)이므로, 방향성 지표로 해석하는 것이 적절합니다.
 
@@ -115,7 +115,7 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 
 - 데이터셋: `--dataset {wikitext2,wikitext103}`, `--data-path ...`
 - 토크나이저: 고정 BPE 경로 (`--bpe-vocab-size`, `--tokenizer-path`)
-- 정규화: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
+- 정규화: `--repulsion`, `--lambda-repulsion`, `--repulsion-interval` (`--repulsion` 사용 시 기본값 `4`)
 - 성능: gravity score는 rsqrt 기반 경로를 사용하며, 추가로 `--use-amp`, `--gradient-accumulation-steps`를 사용할 수 있습니다
 - 스케줄: `--use-cosine-schedule --warmup-steps N`
 
@@ -142,7 +142,7 @@ python train.py --data-path data \
 - [coords_ngt_default.html](w3_25m_results_latest/results/w3_25m/coords_ngt_default.html)
 - [coords_ngt_mass_in_value.html](w3_25m_results_latest/results/w3_25m/coords_ngt_mass_in_value.html)
 - [coords_ngt_no_radius.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_radius.html)
-- [coords_ngt_no_repulsion.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_repulsion.html)
+- [coords_ngt_no_repulsion.html](w3_25m_results_latest/results/w3_25m/coords_ngt_no_repulsion.html) (레거시 파일명)
 - [coords_ngt_repulsion_interval_8.html](w3_25m_results_latest/results/w3_25m/coords_ngt_repulsion_interval_8.html)
 
 TensorBoard:
