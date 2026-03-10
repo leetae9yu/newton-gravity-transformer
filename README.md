@@ -102,7 +102,6 @@ Checkpoint policy:
 - If you pass `--checkpoint-path checkpoints/foo.pt`, training writes:
 - Best validation model: `checkpoints/foo.pt_best.pt`
 - Final model state: `checkpoints/foo.pt_last.pt`
-- `--resume` loads in this order: `*_last.pt` -> `*_best.pt` -> base path
 
 Python 3.11+ is recommended. CUDA is strongly recommended for training.
 

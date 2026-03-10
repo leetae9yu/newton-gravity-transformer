@@ -263,7 +263,6 @@ def parse_args():
                         help="Dataset to train on (default: wikitext2)")
     parser.add_argument("--data-path", default=DEFAULT_CONFIG["data_path"])
     parser.add_argument("--checkpoint-path", default=DEFAULT_CONFIG["checkpoint_path"])
-    parser.add_argument("--resume", action="store_true", default=DEFAULT_CONFIG["resume"])
     parser.add_argument("--batch-size", type=int, default=DEFAULT_CONFIG["batch_size"])
     parser.add_argument("--block-size", type=int, default=DEFAULT_CONFIG["block_size"])
     parser.add_argument("--max-steps", type=int, default=DEFAULT_CONFIG["max_steps"])
@@ -333,7 +332,6 @@ def main():
     best_checkpoint_path = f"{checkpoint_path}_best.pt"
     last_checkpoint_path = f"{checkpoint_path}_last.pt"
     gravity_evolution_path = os.path.join("checkpoints", "gravity_evolution.pkl")
-    resume = args.resume
 
     batch_size = args.batch_size
     block_size = args.block_size
@@ -364,7 +362,7 @@ def main():
 
     accum_steps = args.gradient_accumulation_steps
 
-    # --- Tokenizer setup (may be overridden by checkpoint on resume) ---
+    # --- Tokenizer setup ---
     tokenizer = None
     if args.tokenizer_path and os.path.exists(args.tokenizer_path):
         tokenizer = load_tokenizer_from_path(args.tokenizer_path)
@@ -468,46 +466,7 @@ def main():
 
         scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-    start_step = 0
     best_val = float("inf")
-
-    if resume:
-        for candidate in (last_checkpoint_path, best_checkpoint_path, checkpoint_path):
-            if os.path.exists(candidate):
-                checkpoint = torch.load(candidate, map_location=device, weights_only=False)
-                # Restore tokenizer from checkpoint to avoid retraining BPE
-                tokenizer = load_tokenizer(checkpoint["vocab"])
-                vocab_size = tokenizer.vocab_size
-                splits = load_dataset(args.dataset, tokenizer, data_path)
-                train_data, val_data = splits["train"], splits["val"]
-                # Rebuild model with restored vocab size
-                model = NewtonGravityTransformer(
-                    num_tokens=vocab_size,
-                    hidden_dim=hidden_dim,
-                    coord_dim=coord_dim,
-                    num_layers=num_layers,
-                    num_heads=num_heads,
-                    mlp_dim=mlp_dim,
-                    max_seq_len=block_size,
-                    dropout=dropout,
-                    use_radius_cutoff=use_radius_cutoff,
-                    use_rsqrt=use_rsqrt,
-                    mass_in_value=mass_in_value,
-                    use_soft_cutoff=use_soft_cutoff,
-                ).to(device)
-                # Restore ablation flags from checkpoint config
-                ckpt_config = checkpoint.get("config", {})
-                use_rsqrt = ckpt_config.get("use_rsqrt", use_rsqrt)
-                mass_in_value = ckpt_config.get("mass_in_value", mass_in_value)
-                use_soft_cutoff = ckpt_config.get("use_soft_cutoff", use_soft_cutoff)
-                use_radius_cutoff = ckpt_config.get("use_radius_cutoff", use_radius_cutoff)
-                model.load_state_dict(checkpoint["model_state"], strict=False)
-                optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
-                optimizer.load_state_dict(checkpoint["optimizer_state"])
-                start_step = checkpoint.get("iter", 0)
-                best_val = checkpoint.get("best_val", best_val)
-                mask = build_causal_mask(block_size, device)
-                break
 
     checkpoint_dir = os.path.dirname(checkpoint_path)
     if checkpoint_dir:
@@ -519,7 +478,7 @@ def main():
     t0 = time.time()
     optimizer.zero_grad(set_to_none=True)
 
-    for micro_step in range(start_step * accum_steps, max_steps * accum_steps):
+    for micro_step in range(max_steps * accum_steps):
         x, y = get_batch(train_data, block_size, batch_size, device)
         effective_step = (micro_step + 1) // accum_steps  # 1-based
         is_accum_boundary = (micro_step + 1) % accum_steps == 0
