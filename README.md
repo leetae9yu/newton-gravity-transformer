@@ -12,13 +12,15 @@
 
 NGT is an experimental Transformer variant where tokens behave like particles: each token has a learned **mass** and **coordinates**, and attention is a learnable **gravity kernel** over distances in a latent space.
 
-This repo includes end-to-end training, logging (TensorBoard), checkpointing (`*_best.pt` / `*_last.pt`), and interactive coordinate visualizations.
+This repo currently focuses on end-to-end training, logging (TensorBoard), checkpointing (`*_best.pt` / `*_last.pt`), and archived coordinate visualizations from earlier experiments.
 
 ---
 
 ## Project focus: WikiText defaults with BPE tokenization
 
 The default local benchmark path now targets WikiText-2 with a fixed BPE tokenizer for faster iteration and cleaner experiment tracking.
+
+Important: the benchmark tables and linked artifacts below are historical results from earlier code versions. After the recent tokenizer / repulsion / training-path changes, this codebase has not yet been re-benchmarked.
 
 Historical larger-scale screening in this repo used WikiText-103 with BPE-8192 and ~25M parameter scale.
 
@@ -36,7 +38,7 @@ Shakespeare dataset/checkpoints are legacy and no longer used in this project.
 - After that, the project moved to larger-scale screening on WikiText-103 (~25M parameter scale).
 - Going forward, the plan is to keep scaling model capacity and training budget step by step.
 
-### Latest screening snapshot (w3_25m, seed=42, max_steps=15000)
+### Historical screening snapshot (w3_25m, seed=42, max_steps=15000)
 
 Validation loss is cross-entropy; perplexity is `exp(loss)`.
 
@@ -55,7 +57,7 @@ Throughput on the same settings (`batch=16`, `accum=2`, `block=512`):
 - ngt_no_radius: ~0.855 steps/s
 - ngt_default / ngt_no_repulsion (legacy) / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
 
-This is a budget-constrained screening run (15k steps, roughly about 2 epochs depending on tokenized train-set size), so treat results as directional.
+This is a budget-constrained historical screening run (15k steps, roughly about 2 epochs depending on tokenized train-set size), so treat results as directional rather than representative of the current code.
 
 ---
 
@@ -91,8 +93,6 @@ python prepare_data.py
 python train.py --data-path data \
   --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt
 
-# Chat (NGT only)
-python chat.py --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt_best.pt
 ```
 
 For the previous larger-scale setup, switch to `--dataset wikitext103` with its matching BPE tokenizer path.
@@ -128,16 +128,16 @@ python train.py --data-path data \
 
 ---
 
-## Artifacts and visualization links
+## Historical artifacts and visualization links
 
-Summary/report artifacts:
+Summary/report artifacts from older experiment runs:
 
 - [Minimal summary (`reports/w3_25m_summary.md`)](reports/w3_25m_summary.md)
 - [Full summary (`w3_25m_results/results/w3_25m/Summary.md`)](w3_25m_results/results/w3_25m/Summary.md)
 - [Ablation report (`w3_25m_results/results/w3_25m/report.md`)](w3_25m_results/results/w3_25m/report.md)
 - [Results CSV (`w3_25m_results/results/w3_25m/results.csv`)](w3_25m_results/results/w3_25m/results.csv)
 
-Interactive HTML visualizations (Plotly 3D PCA):
+Interactive HTML visualizations (Plotly 3D PCA, historical):
 
 - [coords_ngt_default.html](w3_25m_results_latest/results/w3_25m/coords_ngt_default.html)
 - [coords_ngt_mass_in_value.html](w3_25m_results_latest/results/w3_25m/coords_ngt_mass_in_value.html)

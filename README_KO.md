@@ -12,13 +12,15 @@
 
 NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적 Transformer 변형입니다. 각 토큰은 학습되는 **질량(mass)**과 **좌표(coordinates)**를 가지며, 어텐션은 잠재 공간에서의 거리 기반 **중력 커널(gravity kernel)**로 계산됩니다.
 
-이 레포는 학습, TensorBoard 로깅, `*_best.pt`/`*_last.pt` 체크포인트, 좌표 시각화(Plotly HTML)까지 end-to-end로 포함합니다.
+이 레포는 현재 학습, TensorBoard 로깅, `*_best.pt`/`*_last.pt` 체크포인트, 그리고 과거 실험에서 생성한 좌표 시각화 아티팩트를 중심으로 관리합니다.
 
 ---
 
 ## 프로젝트 포커스: BPE 토크나이저 기반 WikiText 기본 경로
 
 지금 기본 로컬 벤치마크 경로는 고정 BPE 토크나이저를 쓰는 WikiText-2를 기준으로 잡습니다.
+
+중요: 아래 벤치마크 표와 링크된 아티팩트는 과거 코드 버전에서 얻은 기록입니다. 최근 tokenizer / repulsion / training path 변경 이후에는 아직 현재 코드 기준 재실험을 진행하지 못했습니다.
 
 이 레포에 남아 있는 대규모 스크리닝 기록은 WikiText-103 + BPE-8192 + 약 25M 파라미터 스케일 기준입니다.
 
@@ -36,7 +38,7 @@ NGT(Newton Gravity Transformer)는 토큰을 입자처럼 취급하는 실험적
 - 이후 더 큰 규모 검증을 위해 WikiText-103 (~25M 파라미터 스케일)로 전환했습니다.
 - 앞으로도 모델 규모와 학습 예산을 단계적으로 계속 키워 나갈 계획입니다.
 
-### 최신 스크리닝 스냅샷 (w3_25m, seed=42, max_steps=15000)
+### 과거 스크리닝 스냅샷 (w3_25m, seed=42, max_steps=15000)
 
 val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 
@@ -55,7 +57,7 @@ val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 - ngt_no_radius: ~0.855 steps/s
 - ngt_default / ngt_no_repulsion(레거시) / ngt_repulsion_interval_8: ~0.829-0.830 steps/s
 
-본 결과는 예산 제약 기반 15k 스크리닝(토크나이즈된 train 토큰 수 가정에 따라 대략 2 epoch 내외)이므로, 방향성 지표로 해석하는 것이 적절합니다.
+본 결과는 과거 예산 제약 기반 15k 스크리닝(토크나이즈된 train 토큰 수 가정에 따라 대략 2 epoch 내외)이므로, 현재 코드의 대표 성능이라기보다 방향성 지표로 해석하는 것이 적절합니다.
 
 ---
 
@@ -91,8 +93,6 @@ python prepare_data.py
 python train.py --data-path data \
   --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt
 
-# 채팅(NGT 전용)
-python chat.py --checkpoint-path checkpoints/ngt_wikitext2_bpe_8192.pt_best.pt
 ```
 
 이전 대규모 설정으로 가려면 `--dataset wikitext103`과 그에 맞는 BPE 토크나이저 경로를 사용하면 됩니다.
@@ -128,16 +128,16 @@ python train.py --data-path data \
 
 ---
 
-## 아티팩트 및 시각화 링크
+## 과거 아티팩트 및 시각화 링크
 
-요약/리포트:
+과거 실험 요약/리포트:
 
 - [최소 요약 (`reports/w3_25m_summary.md`)](reports/w3_25m_summary.md)
 - [전체 요약 (`w3_25m_results/results/w3_25m/Summary.md`)](w3_25m_results/results/w3_25m/Summary.md)
 - [Ablation 리포트 (`w3_25m_results/results/w3_25m/report.md`)](w3_25m_results/results/w3_25m/report.md)
 - [결과 CSV (`w3_25m_results/results/w3_25m/results.csv`)](w3_25m_results/results/w3_25m/results.csv)
 
-인터랙티브 HTML 시각화(Plotly 3D PCA):
+인터랙티브 HTML 시각화(Plotly 3D PCA, 과거 결과):
 
 - [coords_ngt_default.html](w3_25m_results_latest/results/w3_25m/coords_ngt_default.html)
 - [coords_ngt_mass_in_value.html](w3_25m_results_latest/results/w3_25m/coords_ngt_mass_in_value.html)
