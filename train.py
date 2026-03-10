@@ -278,8 +278,6 @@ def parse_args():
     parser.add_argument("--num-heads", type=int, default=DEFAULT_CONFIG["num_heads"])
     parser.add_argument("--mlp-dim", type=int, default=DEFAULT_CONFIG["mlp_dim"])
     parser.add_argument("--dropout", type=float, default=DEFAULT_CONFIG["dropout"])
-    parser.add_argument("--no-radius-cutoff", action="store_true", default=False,
-                        help="Disable radius cutoff in gravity attention")
     parser.add_argument("--no-repulsion", action="store_true", default=False,
                         help="Disable repulsion loss during training")
     parser.add_argument("--no-rsqrt", action="store_true", default=False,
@@ -409,7 +407,7 @@ def main():
     else:
         stoi, itos, probe_word_ids = None, None, {}
 
-    use_radius_cutoff = not args.no_radius_cutoff
+    use_radius_cutoff = True
     use_repulsion = not args.no_repulsion
     use_rsqrt = not args.no_rsqrt
     mass_in_value = args.mass_in_value
@@ -443,8 +441,6 @@ def main():
         run_dir = os.path.join("runs", args.run_name)
     else:
         ablation_parts = []
-        if args.no_radius_cutoff:
-            ablation_parts.append("no_radius")
         if args.no_repulsion:
             ablation_parts.append("no_repulsion")
         if use_rsqrt:

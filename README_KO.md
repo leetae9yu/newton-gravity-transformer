@@ -47,7 +47,6 @@ val loss는 cross-entropy이며, perplexity는 `exp(loss)`입니다.
 | ngt_no_repulsion | `--no-repulsion --use-rsqrt` | 4.7214 | 112.33 | 4.7214 (15000) |
 | ngt_repulsion_interval_8 | `--repulsion-interval 8 --use-rsqrt` | 4.7889 | 120.17 | 4.7748 (13000) |
 | ngt_default | `--use-rsqrt` | 4.7915 | 120.48 | 4.7762 (13000) |
-| ngt_no_radius | `--no-radius-cutoff --use-rsqrt` | 4.7940 | 120.78 | 4.7772 (13000) |
 
 같은 설정(`batch=16`, `accum=2`, `block=512`)에서의 처리량:
 
@@ -119,7 +118,7 @@ Python 3.11+ 권장, 학습은 CUDA GPU를 권장합니다.
 - 토크나이저: `--tokenizer {char,bpe,tiktoken}`
 - BPE 옵션: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - 정규화: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
-- sparsity: `--no-radius-cutoff` 또는 `--use-soft-cutoff`
+- sparsity: `--use-soft-cutoff`
 - 성능: rsqrt는 기본값이며, 끄려면 `--no-rsqrt`를 사용하고 추가로 `--use-amp`, `--gradient-accumulation-steps`를 사용할 수 있습니다
 - 스케줄: `--use-cosine-schedule --warmup-steps N`
 

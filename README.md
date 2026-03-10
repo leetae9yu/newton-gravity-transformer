@@ -47,7 +47,6 @@ Validation loss is cross-entropy; perplexity is `exp(loss)`.
 | ngt_no_repulsion | `--no-repulsion --use-rsqrt` | 4.7214 | 112.33 | 4.7214 (15000) |
 | ngt_repulsion_interval_8 | `--repulsion-interval 8 --use-rsqrt` | 4.7889 | 120.17 | 4.7748 (13000) |
 | ngt_default | `--use-rsqrt` | 4.7915 | 120.48 | 4.7762 (13000) |
-| ngt_no_radius | `--no-radius-cutoff --use-rsqrt` | 4.7940 | 120.78 | 4.7772 (13000) |
 
 Throughput on the same settings (`batch=16`, `accum=2`, `block=512`):
 
@@ -119,7 +118,7 @@ Common flags:
 - Tokenizers: `--tokenizer {char,bpe,tiktoken}`
 - BPE option: `--bpe-vocab-size 8192 --tokenizer-path data/tokenizer_bpe_8192.json`
 - Regularization: `--lambda-repulsion`, `--repulsion-interval`, `--no-repulsion`
-- Sparsity: `--no-radius-cutoff` or `--use-soft-cutoff`
+- Sparsity: `--use-soft-cutoff`
 - Performance: rsqrt is on by default; use `--no-rsqrt` to disable, plus `--use-amp`, `--gradient-accumulation-steps`
 - Schedule: `--use-cosine-schedule --warmup-steps N`
 
