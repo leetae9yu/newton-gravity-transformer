@@ -24,6 +24,7 @@ class GravityAttention(nn.Module):
         dist_eps: float = 1e-6,
         use_radius_cutoff: bool = True,
         mass_in_value: bool = False,
+        use_sparse_pattern: bool = True,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -33,6 +34,7 @@ class GravityAttention(nn.Module):
         self.dist_eps = dist_eps
         self.use_radius_cutoff = use_radius_cutoff
         self.mass_in_value = mass_in_value
+        self.use_sparse_pattern = use_sparse_pattern
         
         self.head_dim = hidden_dim // num_heads
         assert self.head_dim * num_heads == hidden_dim, "hidden_dim must be divisible by num_heads"
@@ -55,6 +57,12 @@ class GravityAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def _build_sparse_neighbors(self, seq_len, device):
+        if not self.use_sparse_pattern:
+            positions = torch.arange(seq_len, device=device)
+            neighbor_indices = positions.unsqueeze(0).expand(seq_len, seq_len)
+            valid_mask = torch.ones(seq_len, seq_len, device=device, dtype=torch.bool)
+            return neighbor_indices, valid_mask
+
         positions = torch.arange(seq_len, device=device)
         local_offsets = torch.arange(self.local_window, -1, -1, device=device)
         far_offsets = torch.tensor(self.far_offsets, device=device)
@@ -175,12 +183,13 @@ class GravityAttention(nn.Module):
 
 class NGTBlock(nn.Module):
     def __init__(self, hidden_dim, coord_dim, num_heads, mlp_dim, dropout=0.1,
-                 use_radius_cutoff=True, mass_in_value=False):
+                 use_radius_cutoff=True, mass_in_value=False, use_sparse_pattern=True):
         super().__init__()
         self.attn = GravityAttention(
             hidden_dim, coord_dim, num_heads, dropout=dropout,
             use_radius_cutoff=use_radius_cutoff,
             mass_in_value=mass_in_value,
+            use_sparse_pattern=use_sparse_pattern,
         )
         self.ffn = FeedForward(hidden_dim, mlp_dim, dropout=dropout)
         
@@ -221,6 +230,7 @@ class NewtonGravityTransformer(nn.Module):
         dropout=0.1,
         use_radius_cutoff=True,
         mass_in_value=False,
+        use_sparse_pattern=True,
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, hidden_dim)
@@ -234,6 +244,7 @@ class NewtonGravityTransformer(nn.Module):
                 hidden_dim, coord_dim, num_heads, mlp_dim, dropout,
                 use_radius_cutoff=use_radius_cutoff,
                 mass_in_value=mass_in_value,
+                use_sparse_pattern=use_sparse_pattern,
             )
             for _ in range(num_layers)
         ])

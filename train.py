@@ -142,6 +142,8 @@ def parse_args():
                         help="Enable repulsion loss during training")
     parser.add_argument("--mass-in-value", action="store_true", default=False,
                         help="Apply mass to value weighting instead of attention scores")
+    parser.add_argument("--global-attention", action="store_true", default=False,
+                        help="Disable fixed sparse neighbor selection and compute full global attention")
     parser.add_argument("--lambda-repulsion", type=float, default=0.05,
                         help="Weight for repulsion loss (default: 0.05)")
     parser.add_argument("--repulsion-interval", type=int, default=4,
@@ -269,6 +271,7 @@ def main():
     use_radius_cutoff = True
     use_repulsion = args.repulsion
     mass_in_value = args.mass_in_value
+    use_sparse_pattern = not args.global_attention
     use_amp = args.use_amp and torch.cuda.is_available()
     if args.use_amp and not torch.cuda.is_available():
         print("Warning: --use-amp ignored (CUDA not available)")
@@ -284,6 +287,7 @@ def main():
         dropout=dropout,
         use_radius_cutoff=use_radius_cutoff,
         mass_in_value=mass_in_value,
+        use_sparse_pattern=use_sparse_pattern,
     ).to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
@@ -302,6 +306,8 @@ def main():
                 ablation_parts.append(f"rep_i{args.repulsion_interval}")
         if args.mass_in_value:
             ablation_parts.append("mass_val")
+        if args.global_attention:
+            ablation_parts.append("global")
         ablation_str = "_".join(ablation_parts) if ablation_parts else "default"
         seed_str = f"_s{args.seed}" if args.seed is not None else ""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -489,6 +495,7 @@ def main():
                             "bpe_vocab_size": args.bpe_vocab_size,
                             "use_radius_cutoff": use_radius_cutoff,
                             "mass_in_value": mass_in_value,
+                            "use_sparse_pattern": use_sparse_pattern,
                             "seed": args.seed,
                             "model_type": "ngt",
                             "gradient_accumulation_steps": accum_steps,
@@ -518,6 +525,7 @@ def main():
                 "bpe_vocab_size": args.bpe_vocab_size,
                 "use_radius_cutoff": use_radius_cutoff,
                 "mass_in_value": mass_in_value,
+                "use_sparse_pattern": use_sparse_pattern,
                 "seed": args.seed,
                 "model_type": "ngt",
                 "gradient_accumulation_steps": accum_steps,
@@ -547,6 +555,7 @@ def main():
         "use_radius_cutoff": use_radius_cutoff,
         "use_repulsion": use_repulsion,
         "mass_in_value": mass_in_value,
+        "use_sparse_pattern": use_sparse_pattern,
         "use_cosine_schedule": args.use_cosine_schedule,
         "warmup_steps": args.warmup_steps,
         "seed": args.seed if args.seed is not None else -1,
