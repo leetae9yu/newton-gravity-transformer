@@ -25,6 +25,7 @@ class GravityAttention(nn.Module):
         use_radius_cutoff: bool = True,
         mass_in_value: bool = False,
         use_sparse_pattern: bool = True,
+        use_block_sparse: bool = False,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -35,11 +36,13 @@ class GravityAttention(nn.Module):
         self.use_radius_cutoff = use_radius_cutoff
         self.mass_in_value = mass_in_value
         self.use_sparse_pattern = use_sparse_pattern
+        self.use_block_sparse = use_block_sparse
         
         self.head_dim = hidden_dim // num_heads
         assert self.head_dim * num_heads == hidden_dim, "hidden_dim must be divisible by num_heads"
         self.local_window = 64
         self.far_offsets = (96, 128, 192, 256)
+        self.block_sparse_size = 32
 
         self.v_proj = nn.Linear(hidden_dim, hidden_dim)
         self.coord_proj_attn = nn.Linear(coord_dim, num_heads * head_coord_dim)
@@ -63,6 +66,9 @@ class GravityAttention(nn.Module):
             valid_mask = torch.ones(seq_len, seq_len, device=device, dtype=torch.bool)
             return neighbor_indices, valid_mask
 
+        if self.use_block_sparse:
+            return self._build_block_sparse_neighbors(seq_len, device)
+
         positions = torch.arange(seq_len, device=device)
         local_offsets = torch.arange(self.local_window, -1, -1, device=device)
         far_offsets = torch.tensor(self.far_offsets, device=device)
@@ -70,6 +76,37 @@ class GravityAttention(nn.Module):
         neighbor_indices = positions.unsqueeze(1) - offsets.unsqueeze(0)
         valid_mask = neighbor_indices >= 0
         neighbor_indices = neighbor_indices.clamp_min(0).long()
+        return neighbor_indices, valid_mask
+
+    def _build_block_sparse_neighbors(self, seq_len, device):
+        block_size = self.block_sparse_size
+        positions = torch.arange(seq_len, device=device)
+        block_ids = positions // block_size
+        num_blocks = (seq_len + block_size - 1) // block_size
+
+        local_block_offsets = tuple(range(0, (self.local_window // block_size) + 1))
+        far_block_offsets = tuple(sorted({offset // block_size for offset in self.far_offsets}))
+        allowed_block_offsets = tuple(dict.fromkeys(local_block_offsets + far_block_offsets))
+
+        allowed_mask = torch.zeros(seq_len, seq_len, device=device, dtype=torch.bool)
+        for row in range(seq_len):
+            row_block = int(block_ids[row])
+            for block_offset in allowed_block_offsets:
+                target_block = row_block - block_offset
+                if target_block < 0 or target_block >= num_blocks:
+                    continue
+                start = target_block * block_size
+                end = min(start + block_size, seq_len)
+                allowed_mask[row, start:end] = True
+
+        max_neighbors = int(allowed_mask.sum(dim=-1).max().item())
+        neighbor_indices = torch.zeros(seq_len, max_neighbors, device=device, dtype=torch.long)
+        valid_mask = torch.zeros(seq_len, max_neighbors, device=device, dtype=torch.bool)
+        for row in range(seq_len):
+            row_indices = torch.nonzero(allowed_mask[row], as_tuple=False).squeeze(-1)
+            count = row_indices.numel()
+            neighbor_indices[row, :count] = row_indices
+            valid_mask[row, :count] = True
         return neighbor_indices, valid_mask
 
     def forward(self, hidden_states, coordinates, mass=None, mask=None, return_stats=False, return_attn=False):
@@ -183,13 +220,14 @@ class GravityAttention(nn.Module):
 
 class NGTBlock(nn.Module):
     def __init__(self, hidden_dim, coord_dim, num_heads, mlp_dim, dropout=0.1,
-                 use_radius_cutoff=True, mass_in_value=False, use_sparse_pattern=True):
+                 use_radius_cutoff=True, mass_in_value=False, use_sparse_pattern=True, use_block_sparse=False):
         super().__init__()
         self.attn = GravityAttention(
             hidden_dim, coord_dim, num_heads, dropout=dropout,
             use_radius_cutoff=use_radius_cutoff,
             mass_in_value=mass_in_value,
             use_sparse_pattern=use_sparse_pattern,
+            use_block_sparse=use_block_sparse,
         )
         self.ffn = FeedForward(hidden_dim, mlp_dim, dropout=dropout)
         
@@ -231,6 +269,7 @@ class NewtonGravityTransformer(nn.Module):
         use_radius_cutoff=True,
         mass_in_value=False,
         use_sparse_pattern=True,
+        use_block_sparse=False,
     ):
         super().__init__()
         self.token_emb = nn.Embedding(num_tokens, hidden_dim)
@@ -245,6 +284,7 @@ class NewtonGravityTransformer(nn.Module):
                 use_radius_cutoff=use_radius_cutoff,
                 mass_in_value=mass_in_value,
                 use_sparse_pattern=use_sparse_pattern,
+                use_block_sparse=use_block_sparse,
             )
             for _ in range(num_layers)
         ])
