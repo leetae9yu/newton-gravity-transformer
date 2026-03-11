@@ -58,6 +58,24 @@ class GravityAttention(nn.Module):
         
         self.softplus = nn.Softplus()
         self.dropout = nn.Dropout(dropout)
+        self._neighbor_cache = {}
+
+    def _neighbor_cache_key(self, seq_len, device):
+        return (
+            seq_len,
+            str(device),
+            self.use_sparse_pattern,
+            self.use_block_sparse,
+            self.local_window,
+            self.far_offsets,
+            self.block_sparse_size,
+        )
+
+    def _get_neighbor_pattern(self, seq_len, device):
+        cache_key = self._neighbor_cache_key(seq_len, device)
+        if cache_key not in self._neighbor_cache:
+            self._neighbor_cache[cache_key] = self._build_sparse_neighbors(seq_len, device)
+        return self._neighbor_cache[cache_key]
 
     def _build_sparse_neighbors(self, seq_len, device):
         if not self.use_sparse_pattern:
@@ -111,7 +129,7 @@ class GravityAttention(nn.Module):
 
     def forward(self, hidden_states, coordinates, mass=None, mask=None, return_stats=False, return_attn=False):
         batch_size, seq_len, _ = hidden_states.size()
-        neighbor_indices, sparse_pattern_mask = self._build_sparse_neighbors(seq_len, hidden_states.device)
+        neighbor_indices, sparse_pattern_mask = self._get_neighbor_pattern(seq_len, hidden_states.device)
 
         # Value Projection
         value = self.v_proj(hidden_states).view(batch_size, seq_len, self.num_heads, self.head_dim)
